@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAILLM:
-    def __init__(self, model="gpt-3.5-turbo", temperature=0):
+    def __init__(self, model="gpt-4o-mini-2024-07-18", temperature=0):
         self.model = model
         self.temperature = temperature
         # Instantiate the async client with your API key.
@@ -115,4 +115,4 @@ async def process_reviews_in_batches_async(new_reviews, faiss_retriever, llm, in
             
     logger.info(f"Total tokens used: {llm.get_total_tokens()}")
 
-    return results
+    return results, llm.get_total_tokens()

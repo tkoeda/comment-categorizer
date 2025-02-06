@@ -23,12 +23,15 @@ industry_categories = {
 
 INDEX_DIR_PREFIX = "faiss_index_"
 
+
 # ---------------------------------------------------
 # 5. Main Execution Flow with Argument Parsing
 # ---------------------------------------------------
 def main():
+    section_times = {}  # Dictionary to store elapsed times for each section
+
     total_start = time.time()
-    
+
     parser = argparse.ArgumentParser(description="Process Excel reviews and classify them.")
     parser.add_argument("--industry", required=True, help="Industry for the reviews")
     parser.add_argument("--past", required=True, help="Path to past reviews Excel")
@@ -38,27 +41,46 @@ def main():
     print(f"Processing reviews for industry: {args.industry}")
 
     # Initialize FAISS and OpenAI models
-
+    section_start = time.time()
     faiss_retriever = FaissRetriever(
-        past_excel_path=args.past,   # Excel file with past reviews
-        industry=args.industry
-)
+        past_excel_path=args.past,  # Excel file with past reviews
+        industry=args.industry,
+    )
+    section_end = time.time()
+    section_times["faiss_retriever"] = section_end - section_start
 
     llm = OpenAILLM()
 
     # Load new reviews
+    section_start = time.time()
     new_reviews = fetch_new_reviews_from_excel(excel_path=args.new, default_industry=args.industry)
+    section_end = time.time()
+    section_times["fetch_new_reviews_from_excel"] = section_end - section_start
 
     # Process reviews asynchronously
-    review_results = asyncio.run(process_reviews_in_batches_async(new_reviews, faiss_retriever, llm, industry_categories))
+    section_start = time.time()
+    review_results, total_tokens = asyncio.run(
+        process_reviews_in_batches_async(new_reviews, faiss_retriever, llm, industry_categories)
+    )
+    section_end = time.time()
+    section_times["process_reviews_in_batches_async"] = section_end - section_start
 
     # Save results
-    save_results_to_json(review_results, output_path="output/result.json")
-    save_results_to_excel(review_results, output_path="output/result.xlsx")
-
+    section_start = time.time()
+    save_results_to_json(review_results, total_tokens, output_dir="output")
+    save_results_to_excel(review_results, total_tokens, output_dir="output")
+    section_end = time.time()
+    section_times["save_results_to_json"] = section_end - section_start
     print("Processing completed.")
     total_end = time.time()
-    print(f"Total processing time: {total_end - total_start} seconds")
+    total_time = total_end - total_start
+
+    print("\nSection Timings:")
+    for section, duration in section_times.items():
+        print(f"{section}: {duration:.2f} seconds")
+    print(f"\nScript total runtime: {total_time:.2f} seconds")
+    print(f"Total tokens used: {total_tokens}")
+
 
 if __name__ == "__main__":
     main()
