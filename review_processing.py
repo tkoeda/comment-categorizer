@@ -1,19 +1,29 @@
 import asyncio
 import json
+import logging
 import os
 
-import openai
+from openai import AsyncOpenAI
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class OpenAILLM:
     def __init__(self, model="gpt-3.5-turbo", temperature=0):
         self.model = model
         self.temperature = temperature
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
+        # Instantiate the async client with your API key.
+        self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        if not os.environ.get("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY is missing. Add it to your environment variables.")
+        
+        self.total_tokens = 0
 
     async def classify_review(self, new_review, similar_reviews, categories):
+        new_review = new_review.strip()
+        similar_reviews = " ".join(similar_reviews.split())  # Remove extra spaces within similar reviews
+
         prompt = f"""
         新しいレビュー:  
         "{new_review}"
@@ -29,25 +39,30 @@ class OpenAILLM:
 
         出力は、次のJSONフォーマットに従ってください:
         {{
-            "categories": ["選ばれたカテゴリ1", "選ばれたカテゴリ2", ...],
+            "categories": ["選ばれたカテゴリ1", "選ばれたカテゴリ2", ...]
         }}
         """
-
-        response = await asyncio.to_thread(
-            openai.ChatCompletion.create,
+        # Use the async client's API call directly.
+        response = await self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "system", "content": prompt}],
-            temperature=self.temperature
+            temperature=self.temperature,
+            response_format={"type": "json_object"},
         )
-
+        
+        self.total_tokens += response.usage.total_tokens
+        
         try:
-            return json.loads(response["choices"][0]["message"]["content"])
+            content = response.choices[0].message.content
+            return json.loads(content)
         except json.JSONDecodeError:
             return {"categories": ["N/A"]}
+        
+    def get_total_tokens(self):
+        return self.total_tokens
 
-async def process_reviews_in_batches_async(
-    new_reviews, faiss_retriever, llm, industry_categories, batch_size=20
-):
+
+async def process_reviews_in_batches_async(new_reviews, faiss_retriever, llm, industry_categories, batch_size=20):
     results = []
     industry = new_reviews[0].get("industry", "unknown")
     possible_categories = industry_categories.get(industry, [])
@@ -64,7 +79,6 @@ async def process_reviews_in_batches_async(
                     "new_review": review["text"],
                     "similar_reviews": "",
                     "categories": ["N/A"],
-                    "summary": "No review text provided.",
                 }
             )
 
@@ -76,17 +90,13 @@ async def process_reviews_in_batches_async(
             [review["text"] for review in non_empty_batch], top_k=3
         )
 
+        print("similar_reviews_list", similar_reviews_list)
+
         # Prepare async LLM calls
         tasks = []
         for j, review in enumerate(non_empty_batch):
-            similar_reviews = "\n".join(
-                [f"{idx+1}. {sim_review}" for idx, (sim_review, _) in enumerate(similar_reviews_list[j])]
-            )
-            tasks.append(
-                llm.classify_review(
-                    review["text"], similar_reviews, possible_categories
-                )
-            )
+            similar_reviews = [sim_review for sim_review in similar_reviews_list[j]]
+            tasks.append(llm.classify_review(review["text"], "\n".join(similar_reviews), possible_categories))
 
         # Run LLM tasks asynchronously
         batch_results = await asyncio.gather(*tasks)
@@ -94,15 +104,15 @@ async def process_reviews_in_batches_async(
         # Process LLM outputs
         for j, review in enumerate(non_empty_batch):
             categories = batch_results[j].get("categories", [])
-            summary = batch_results[j].get("summary", "No summary available.")
             results.append(
                 {
                     "NO": review.get("NO", None),
                     "new_review": review["text"],
                     "similar_reviews": similar_reviews_list[j],
                     "categories": categories,
-                    "summary": summary,
                 }
             )
+            
+    logger.info(f"Total tokens used: {llm.get_total_tokens()}")
 
     return results

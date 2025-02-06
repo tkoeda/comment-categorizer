@@ -41,7 +41,6 @@ def main():
 
     faiss_retriever = FaissRetriever(
         past_excel_path=args.past,   # Excel file with past reviews
-        index_dir=f"{INDEX_DIR_PREFIX}{args.industry}",  # e.g., "faiss_index_hotel"
         industry=args.industry
 )
 
