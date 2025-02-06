@@ -1,63 +1,104 @@
-import asyncio
-import logging
 import os
 import pickle
 
-from langchain_community.vectorstores import FAISS
+import faiss
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
-from data_loader import fetch_historical_reviews_from_excel
-
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+from data_loader import fetch_historical_reviews_from_excel  # Your function to load reviews
 
 CACHE_DIR = "cache"
-INDEX_DIR_PREFIX = "faiss_index_"
 
+class FaissRetriever:
+    def __init__(self, past_excel_path, index_dir, industry, embeddings_model="sentence-transformers/all-MiniLM-L6-v2"):
+        """
+        Initializes the retriever.
 
-class ReviewIndexer:
-    def __init__(self, past_excel_path, industry, embeddings, cache_dir=CACHE_DIR, index_dir_prefix=INDEX_DIR_PREFIX):
+        Args:
+            past_excel_path (str): Path to the Excel file with past reviews.
+            index_dir (str): Directory where the FAISS index will be stored.
+            industry (str): Industry identifier (used for naming the index file).
+            embeddings_model (str): HuggingFace model name for SentenceTransformer.
+        """
         self.past_excel_path = past_excel_path
+        self.index_dir = index_dir
         self.industry = industry
-        self.embeddings = embeddings
-        self.cache_dir = cache_dir
-        self.index_dir = f"{index_dir_prefix}{industry}"
+        self.embeddings_model = SentenceTransformer(embeddings_model)
+        self.index_path = os.path.join(index_dir, f"{industry}.index")
 
-    def load_reviews(self):
-        # Create cache directory if it doesn't exist
-        os.makedirs(self.cache_dir, exist_ok=True)
-        cache_path = os.path.join(self.cache_dir, f"past_reviews_{self.industry}.pkl")
-        if os.path.exists(cache_path):
-            logger.info("Loading past reviews from cache for industry: %s", self.industry)
-            with open(cache_path, "rb") as f:
-                documents = pickle.load(f)
+        # If the index file doesn't exist, generate it from the past reviews Excel file.
+        if not os.path.exists(self.index_path):
+            print(f"Index file {self.index_path} does not exist. Generating FAISS index from past reviews...")
+            self.generate_index()
         else:
-            logger.info("Cache not found for industry %s. Fetching from Excel...", self.industry)
-            documents = fetch_historical_reviews_from_excel(self.past_excel_path, self.industry)
-            with open(cache_path, "wb") as f:
-                pickle.dump(documents, f)
-        return documents
+            print(f"Index file {self.index_path} found. Loading index...")
 
-    def load_vectorstore(self):
-        documents = self.load_reviews()
-        # Check if the index directory exists
-        if os.path.exists(self.index_dir):
-            vectorstore = FAISS.load_local(self.index_dir, self.embeddings, allow_dangerous_deserialization=True)
-            logger.info("Loaded FAISS vector store for industry '%s' from disk.", self.industry)
-        else:
-            vectorstore = FAISS.from_documents(documents, self.embeddings)
-            vectorstore.save_local(self.index_dir)
-            logger.info("Built and saved FAISS vector store for industry '%s'.", self.industry)
-        return vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        self.index = faiss.read_index(self.index_path)
 
-    async def async_load_vectorstore(self):
-        documents = await asyncio.to_thread(self.load_reviews)  # Optionally offload cache loading
-        if os.path.exists(self.index_dir):
-            vectorstore = await FAISS.aload_local(self.index_dir, self.embeddings, asynchronous=True)
-            logger.info("Loaded FAISS vector store for industry '%s' from disk.", self.industry)
-        else:
-            vectorstore = await FAISS.afrom_documents(documents, self.embeddings)
-            # Assuming there's an async method for saving if needed,
-            # otherwise, you may offload the saving part to a thread:
-            await asyncio.to_thread(vectorstore.save_local, self.index_dir)
-            logger.info("Built and saved FAISS vector store for industry '%s'.", self.industry)
-        return vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+    def generate_index(self):
+        """
+        Generates a FAISS index from the past reviews Excel file.
+        Also caches the original reviews (documents) for later use.
+        """
+        # Load historical reviews using your custom loader
+        documents = fetch_historical_reviews_from_excel(self.past_excel_path, self.industry)
+        texts = [doc.page_content for doc in documents]
+
+        # Compute embeddings for all reviews
+        embeddings = self.embeddings_model.encode(texts, convert_to_numpy=True)
+        dimension = embeddings.shape[1]
+
+        # Create a FAISS index (using L2 distance)
+        index = faiss.IndexFlatL2(dimension)
+        index.add(embeddings)
+
+        # Ensure the index directory exists
+        os.makedirs(self.index_dir, exist_ok=True)
+        # Save the FAISS index to disk
+        faiss.write_index(index, self.index_path)
+        print(f"Generated and saved FAISS index at: {self.index_path}")
+
+        # Optionally, cache the original documents
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        cache_file = os.path.join(CACHE_DIR, f"past_reviews_{self.industry}.pkl")
+        with open(cache_file, "wb") as f:
+            pickle.dump(documents, f)
+        print(f"Cached past reviews at: {cache_file}")
+
+    def retrieve_similar_reviews(self, query, top_k=3):
+        """
+        Retrieves the top_k most similar reviews for a given query.
+
+        Args:
+            query (str): The review text to query.
+            top_k (int): Number of similar reviews to retrieve.
+
+        Returns:
+            List of tuples (index, distance).
+        """
+        query_vector = self.embeddings_model.encode([query]).astype(np.float32)
+        distances, indices = self.index.search(query_vector, top_k)
+        results = []
+        for idx, dist in zip(indices[0], distances[0]):
+            if idx != -1:
+                results.append((idx, dist))
+        return results
+
+    def batch_retrieve_similar_reviews(self, reviews, top_k=3):
+        """
+        Retrieves similar reviews for a batch of reviews.
+
+        Args:
+            reviews (List[str]): A list of review texts.
+            top_k (int): Number of similar reviews to retrieve for each review.
+
+        Returns:
+            List[List[tuple]]: A list (per review) of lists of tuples (index, distance).
+        """
+        query_vectors = self.embeddings_model.encode(reviews).astype(np.float32)
+        distances, indices = self.index.search(query_vectors, top_k)
+        batch_results = []
+        for dist_list, idx_list in zip(distances, indices):
+            review_results = [(idx, dist) for idx, dist in zip(idx_list, dist_list) if idx != -1]
+            batch_results.append(review_results)
+        return batch_results
