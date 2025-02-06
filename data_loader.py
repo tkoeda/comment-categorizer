@@ -7,9 +7,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-def fetch_historical_reviews_from_excel(
-    excel_path="data/past.xlsx", default_industry=None
-):
+def fetch_historical_reviews_from_excel(excel_path="data/past.xlsx", default_industry=None):
     """
     Reads historical reviews from an Excel file.
     Expects a sheet with at least the column:
@@ -28,13 +26,9 @@ def fetch_historical_reviews_from_excel(
             for _, row in df.iterrows():
                 review_text = row["コメント"]
                 if pd.isna(review_text):
-                    logger.warning(
-                        "Skipping row in sheet '%s' due to missing comment.", sheet
-                    )
+                    logger.warning("Skipping row in sheet '%s' due to missing comment.", sheet)
                     continue  # Skip rows with NaN values
-                industry = (
-                    default_industry if default_industry is not None else "unknown"
-                )
+                industry = default_industry if default_industry is not None else "unknown"
                 doc = Document(
                     page_content=str(review_text),  # Ensuring it's a string
                     metadata={"industry": industry},
@@ -76,9 +70,7 @@ def fetch_new_reviews_from_excel(excel_path="data/news.xlsx", default_industry=N
             new_reviews.append(
                 {
                     "NO": review_id,
-                    "text": str(review_text)
-                    if pd.notna(review_text)
-                    else "",  # Ensure it's a string
+                    "text": str(review_text) if pd.notna(review_text) else "",  # Ensure it's a string
                     "industry": industry,
                 }
             )
