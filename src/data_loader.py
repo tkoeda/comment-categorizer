@@ -2,15 +2,17 @@ import logging
 from dataclasses import dataclass
 
 import pandas as pd
-from tqdm import tqdm  # Ensure this import is at the top
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Document:
     page_content: str
     metadata: dict
+
 
 def fetch_historical_reviews_from_excel(excel_path, default_industry=None):
     """
@@ -25,17 +27,17 @@ def fetch_historical_reviews_from_excel(excel_path, default_industry=None):
     """
     xls = pd.ExcelFile(excel_path)
     documents = []
-    for sheet in tqdm(xls.sheet_names, desc="Processing sheets"):
+    for sheet in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name=sheet)
         if "コメント" in df.columns:
             for _, row in df.iterrows():
                 review_text = row["コメント"]
                 if pd.isna(review_text):
                     logger.warning("Skipping row in sheet '%s' due to missing comment.", sheet)
-                    continue  # Skip rows with NaN values
+                    continue
                 industry = default_industry if default_industry is not None else "unknown"
                 doc = Document(
-                    page_content=str(review_text),  # Ensuring it's a string
+                    page_content=str(review_text),
                     metadata={"industry": industry},
                 )
                 documents.append(doc)
@@ -53,14 +55,12 @@ def fetch_new_reviews_from_excel(excel_path, default_industry=None):
     xls = pd.ExcelFile(excel_path)
     new_reviews = []
 
-    for sheet in tqdm(xls.sheet_names, desc="Processing sheets"):
+    for sheet in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name=sheet)
 
-        # Ensure "NO" exists, default to None if missing
         if "NO" not in df.columns:
             df["NO"] = None
 
-        # Ensure "コメント" exists, default to empty string if missing
         if "コメント" not in df.columns:
             df["コメント"] = ""
 
@@ -68,12 +68,11 @@ def fetch_new_reviews_from_excel(excel_path, default_industry=None):
             review_text = row["コメント"]
             review_id = row["NO"]
             industry = default_industry if default_industry is not None else "unknown"
-    
-            # Include rows even if `review_text` is empty or NaN
+
             new_reviews.append(
                 {
                     "NO": review_id,
-                    "text": str(review_text) if pd.notna(review_text) else "",  # Ensure it's a string
+                    "text": str(review_text) if pd.notna(review_text) else "",
                     "industry": industry,
                 }
             )

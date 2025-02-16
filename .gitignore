@@ -13,6 +13,8 @@ ENV/
 data/*
 output/*
 
+faiss*/
+
 # History
 .history
 
