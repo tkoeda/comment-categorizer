@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8" />
+        <title>Review Processing Dashboard</title>
+        <link rel="stylesheet" href="/static/css/style.css" />
+        <script src="/static/js/industry.js"></script>
+        <script>
+
+            async function submitForm(event, endpoint, messageId) {
+                event.preventDefault();
+                const form = event.target;
+                const formData = new FormData(form);
+                try {
+                    const response = await fetch(endpoint, {
+                        method: form.method,
+                        body: formData,
+                    });
+                    if (response.ok) {
+                        if (endpoint === "/process_reviews") {
+                            // Process Reviews returns an Excel file as a blob.
+                            const blob = await response.blob();
+                            const url = window.URL.createObjectURL(blob);
+                            document.getElementById(messageId).innerHTML =
+                                "Success! <a href='" + url + "' download='categorized_reviews.xlsx'>Download Categorized Reviews</a>";
+                        } else {
+                            const data = await response.json();
+                            document.getElementById(messageId).innerText = "Success: " + data.message;
+                        }
+                    } else {
+                        document.getElementById(messageId).innerText = "Error: " + response.statusText;
+                    }
+                } catch (error) {
+                    console.error("Error submitting form:", error);
+                    document.getElementById(messageId).innerText = "Error submitting form.";
+                }
+            }
+
+            async function loadFileLists(industry, type, target) {
+                    try {
+                        console.log(industry, type, target);
+                        const response = await fetch(`/list_files?industry=${industry}&type=${type}`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log(data);
+                            // When updating the cleaning form:
+                            if (target === "clean") {
+                                const cleanCombinedSelect = document.getElementById("cleanCombined");
+                                cleanCombinedSelect.innerHTML = "";
+                                data.combined_new.forEach((file) => {
+                                    const option = document.createElement("option");
+                                    option.value = file;
+                                    option.text = file;
+                                    cleanCombinedSelect.appendChild(option);
+                                });
+                            }
+                            // When updating the process saved reviews form:
+                            else if (target === "process") {
+                                const combinedSelect = document.getElementById("combinedFile");
+                                combinedSelect.innerHTML = "";
+                                data.combined_new.forEach((file) => {
+                                    const option = document.createElement("option");
+                                    option.value = file;
+                                    option.text = file;
+                                    combinedSelect.appendChild(option);
+                                });
+                                const cleanedSelect = document.getElementById("cleanedFile");
+                                cleanedSelect.innerHTML = "";
+                                data.cleaned_new.forEach((file) => {
+                                    const option = document.createElement("option");
+                                    option.value = file;
+                                    option.text = file;
+                                    cleanedSelect.appendChild(option);
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Error loading file lists:", error);
+                    }
+                }
+
+            // Global variable to store file lists from the API.
+            let fileLists = {};
+
+            // Fetch file lists from your /list_files endpoint on page load.
+            async function loadAllFiles() {
+                try {
+                    const response = await fetch("/list_files");
+                    if (response.ok) {
+                        fileLists = await response.json();
+                    } else {
+                        console.error("Failed to load file lists:", response.statusText);
+                    }
+                } catch (error) {
+                    console.error("Error loading file lists:", error);
+                }
+            }
+
+            // Update the file dropdown based on the selected folder.
+            // Note: We're mapping the folder names expected by the delete endpoint 
+            // (raw, combined, cleaned, past_reviews) to the keys returned by /list_files.
+            function updateFileDropdown() {
+                const folder = document.getElementById("folderDelete").value;
+                const fileDropdown = document.getElementById("fileDropdown");
+                // Clear current options
+                fileDropdown.innerHTML = "";
+
+                // Add a default option.
+                const defaultOption = document.createElement("option");
+                defaultOption.text = "Select File";
+                defaultOption.disabled = true;
+                defaultOption.selected = true;
+                fileDropdown.appendChild(defaultOption);
+
+                // Map folder names to file list keys.
+                let key = "";
+                if (folder === "raw") {
+                    key = "raw_new";
+                } else if (folder === "combined") {
+                    key = "combined_new";
+                } else if (folder === "cleaned") {
+                    key = "cleaned_new";
+                } else if (folder === "past_reviews") {
+                    key = "past_reviews";
+                } else if (folder === "final") {
+                    key = "final";
+                }
+
+                // Populate the dropdown with the files.
+                const files = fileLists[key] || [];
+                files.forEach(file => {
+                    const option = document.createElement("option");
+                    option.value = file;
+                    option.text = file;
+                    fileDropdown.appendChild(option);
+                });
+            }
+
+            // Submit the delete form by sending a DELETE request to the API.
+            async function submitDeleteForm(event) {
+                event.preventDefault();
+                const form = event.target;
+                const formData = new FormData(form);
+                try {
+                    const response = await fetch("/delete_file", {
+                        method: "DELETE",
+                        body: formData,
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        document.getElementById("deleteMessage").innerText = "Success: " + data.message;
+                        // Refresh file lists and update all dropdowns immediately
+                        await loadFileLists();  // This refreshes dropdowns like cleanCombined, combinedFile, and cleanedFile
+                        updateFileDropdown();   // This updates the delete file dropdown as well
+                    } else {
+                        const errorData = await response.json();
+                        document.getElementById("deleteMessage").innerText = "Error: " + errorData.detail;
+                    }
+                } catch (error) {
+                    console.error("Error submitting delete form:", error);
+                    document.getElementById("deleteMessage").innerText = "Error submitting delete form.";
+                }
+            }
+
+            // Function to switch between tabs:
+            function openTab(evt, tabName) {
+                // Hide all tab contents
+                const tabcontent = document.getElementsByClassName("tabcontent");
+                for (let i = 0; i < tabcontent.length; i++) {
+                    tabcontent[i].style.display = "none";
+                }
+                // Remove the active class from all tabs
+                const tablinks = document.getElementsByClassName("tablinks");
+                for (let i = 0; i < tablinks.length; i++) {
+                    tablinks[i].className = tablinks[i].className.replace(" active", "");
+                }
+                // Show the current tab, and add an "active" class to the button that opened the tab
+                document.getElementById(tabName).style.display = "block";
+                evt.currentTarget.className += " active";
+            }
+            // Load file lists when the document is ready.
+            // Add event listeners for industry dropdown changes.
+            document.addEventListener("DOMContentLoaded", () => {
+                    // Instead of calling loadIndustries immediately, we attach onfocus listeners
+                    // so that when the user first interacts with any industry dropdown, it gets populated.
+                    const dropdownIDs = [
+                        "deleteIndustrySelect",
+                        "updateIndustrySelect",
+                        "industry_saved",
+                        "industry_update",
+                        "industry_combine",
+                        "industry_clean",
+                    ];
+                    dropdownIDs.forEach((id) => {
+                        const select = document.getElementById(id);
+                        if (select) {
+                            // Ensure it starts with only the default "Select Industry" option.
+                            select.innerHTML = "";
+                            const defaultOption = document.createElement("option");
+                            defaultOption.value = "";
+                            defaultOption.text = "Select Industry";
+                            defaultOption.disabled = true;
+                            defaultOption.selected = true;
+                            select.appendChild(defaultOption);
+                            // When the user focuses on the dropdown, load the industries if not already loaded.
+                            select.addEventListener("focus", async () => {
+                                if (select.options.length === 1) {
+                                    await loadIndustries();
+                                }
+                            });
+                        }
+                    });
+
+                    // Attach change event listeners to update file dropdowns when an industry is selected.
+                    const industryClean = document.getElementById("industry_clean");
+                    industryClean.addEventListener("change", (e) => {
+                        const industry = e.target.value;
+                        if (industry) {
+                            loadFileLists(industry, "new", "clean");
+                        }
+                    });
+                    const industrySaved = document.getElementById("industry_saved");
+                    industrySaved.addEventListener("change", (e) => {
+                        const industry = e.target.value;
+                        if (industry) {
+                            loadFileLists(industry, "new", "process");
+                        }
+                    });
+                });
+        </script>
+    </head>
+
+    <body>
+        <div class="container">
+            <h1>Review Processing Dashboard</h1>
+            <p>This dashboard allows you to manage your review processing workflow in multiple steps.</p>
+        
+            <!-- Tab buttons -->
+            <div class="tabs">
+                <button class="tablinks" id="defaultTab" onclick="openTab(event, 'Processing')">Processing</button>
+                <button class="tablinks" onclick="openTab(event, 'IndustryManagement')">Industry Management</button>
+            </div>
+        
+            <!-- Tab content for Review Processing -->
+            <div id="Processing" class="tabcontent">
+                <!-- Combine Reviews Form (Step 1) -->
+                <h2>Step 1: Combine Reviews (Optional)</h2>
+                <form id="combineForm" action="/combine_reviews" method="post" enctype="multipart/form-data" onsubmit="submitForm(event, '/combine_reviews', 'combineMessage')">
+                    <label for="industry_combine">Industry:</label>
+                    <select id="industry_combine" name="industry" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <label for="combineType">Type:</label>
+                    <select id="combineType" name="type" required>
+                        <option value="" disabled selected>Select type</option>
+                        <option value="new">New</option>
+                        <option value="past">Past</option>
+                    </select>
+                    <label for="combineFiles">Select Excel Files (Raw Reviews):</label>
+                    <input type="file" id="combineFiles" name="files" accept=".xlsx" multiple required />
+                    <button type="submit">Combine Reviews</button>
+                </form>
+                <div id="combineMessage" class="message"></div>
+        
+                <!-- Clean Reviews Form (Step 2) -->
+                <h2>Step 2: Clean Combined Reviews</h2>
+                <form id="cleanForm" action="/clean_reviews" method="post" onsubmit="submitForm(event, '/clean_reviews', 'cleanMessage')">
+                    <label for="industry_clean">Industry:</label>
+                    <select id="industry_clean" name="industry" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <label for="cleanCombined">Select Combined File (Combined):</label>
+                    <select id="cleanCombined" name="selected_file" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <button type="submit">Clean Reviews</button>
+                </form>
+                <div id="cleanMessage" class="message"></div>
+        
+                <!-- Process Saved Reviews Form (Step 3) -->
+                <h2>Step 3: Process Saved Reviews</h2>
+                <form id="processSavedForm" action="/process_reviews_saved" method="post" onsubmit="submitForm(event, '/process_reviews_saved', 'processSavedMessage')">
+                    <label for="industry_saved">Industry:</label>
+                    <select id="industry_saved" name="industry" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <label for="combinedFile">Select Combined File (Combined):</label>
+                    <select id="combinedFile" name="combined_file" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <label for="cleanedFile">Select Cleaned File (Cleaned):</label>
+                    <select id="cleanedFile" name="cleaned_file" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <button type="submit">Process Saved Reviews</button>
+                </form>
+                <div id="processSavedMessage" class="message"></div>
+        
+                <!-- Update Past Reviews Form (Step 4) -->
+                <h2>Step 4: Update Past Reviews</h2>
+                <form id="updateForm" action="/update_past_reviews" method="post" enctype="multipart/form-data" onsubmit="submitForm(event, '/update_past_reviews', 'updateMessage')">
+                    <label for="industry_update">Industry:</label>
+                    <select id="industry_update" name="industry" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <label for="updateFile">Select Excel File (Cleaned Past Reviews):</label>
+                    <input type="file" id="updateFile" name="file" accept=".xlsx" required />
+                    <button type="submit">Update Past Reviews</button>
+                </form>
+                <div id="updateMessage" class="message"></div>
+        
+                <!-- Delete File Form -->
+                <h2>Delete File</h2>
+                <form id="deleteForm" onsubmit="submitDeleteForm(event)">
+                    <label for="folderDelete">Select Folder:</label>
+                    <select id="folderDelete" name="folder" required onchange="updateFileDropdown()">
+                        <option value="" disabled selected>Select Folder</option>
+                        <option value="raw">raw</option>
+                        <option value="combined">combined</option>
+                        <option value="cleaned">cleaned</option>
+                        <option value="past_reviews">past_reviews</option>
+                        <option value="final">final</option>
+                    </select>
+                    <label for="fileDropdown">Select File:</label>
+                    <select id="fileDropdown" name="filename" required>
+                        <option value="" disabled selected>Select File</option>
+                    </select>
+                    <button type="submit">Delete File</button>
+                </form>
+                <div id="deleteMessage" class="message"></div>
+            </div>
+        
+            <!-- Tab content for Industry Management -->
+            <div id="IndustryManagement" class="tabcontent">
+                <h2>Manage Industries</h2>
+                <!-- Add Industry Form -->
+                <h3>Add Industry</h3>
+                <form id="addIndustryForm" onsubmit="submitAddIndustryForm(event)">
+                    <label for="industryName">Industry Name:</label>
+                    <input type="text" id="industryName" name="name" required />
+                    <label for="industryCategories">Categories (comma separated):</label>
+                    <input type="text" id="industryCategories" name="categories" placeholder="e.g., category1, category2" required />
+                    <button type="submit">Add Industry</button>
+                </form>
+                <div id="addIndustryMessage" class="message"></div>
+        
+                <!-- Delete Industry Form -->
+                <h3>Delete Industry</h3>
+                <form id="deleteIndustryForm" onsubmit="submitDeleteIndustryForm(event)">
+                    <label for="deleteIndustrySelect">Select Industry:</label>
+                    <select id="deleteIndustrySelect" name="name" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <button type="submit">Delete Industry</button>
+                </form>
+                <div id="deleteIndustryMessage" class="message"></div>
+        
+                <!-- Update Industry Categories Form -->
+                <h3>Update Industry Categories</h3>
+                <form id="updateIndustryForm" onsubmit="submitUpdateIndustryForm(event)">
+                    <label for="updateIndustrySelect">Select Industry:</label>
+                    <select id="updateIndustrySelect" name="name" required>
+                        <option value="" disabled selected>Loading...</option>
+                    </select>
+                    <label for="newCategories">New Categories (comma separated):</label>
+                    <input type="text" id="newCategories" name="categories" required />
+                    <button type="submit">Update Categories</button>
+                </form>
+                <div id="updateIndustryMessage" class="message"></div>
+            </div>
+        </div>
+    </body>
+
+</html>
