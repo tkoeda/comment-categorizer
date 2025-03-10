@@ -1,6 +1,5 @@
 import api from "./api/api";
 
-// Submit a form with FormData to the specified endpoint.
 export const submitForm = async (endpoint: string, formData: FormData) => {
     const response = await api.request({
         url: endpoint,
@@ -11,47 +10,31 @@ export const submitForm = async (endpoint: string, formData: FormData) => {
     return response.data;
 };
 
-// Load file lists for a given industry and type.
-export const loadFileLists = async (industry: string, type: string) => {
-    const response = await api.get("/list_files/", {
-        params: { industry, type },
+export const loadFileLists = async (industryId: number, reviewType?: string) => {
+    const response = await api.get("/reviews/list/", {
+        params: { industry_id: industryId, review_type: reviewType },
     });
     return response.data;
 };
 
-// Load industries.
-export const loadIndustries = async () => {
+export const getIndustries = async () => {
     const response = await api.get("/industries/");
     return response.data;
 };
 
-// Delete a file by sending a DELETE request with FormData.
-export interface DeleteFileParams {
-    folder: string;
-    filename: string;
-}
-
-export const deleteFile = async ({
-    folder,
-    filename,
-}: DeleteFileParams): Promise<any> => {
-    const formData = new FormData();
-    formData.append("folder", folder);
-    formData.append("filename", filename);
-    const response = await api.delete("/delete_file", { data: formData });
+export const deleteFile = async (review_id: number) => {
+    const response = await api.delete(`/reviews/${review_id}`);
     return response.data;
 };
 
-// Add an industry.
 export const addIndustry = async (name: string, categories: string[]) => {
-    const response = await api.post("/industries/", { name, categories });
+    const response = await api.post("/industries/", { industry_name: name, categories });
     return response.data;
 };
 
-// Delete an industry.
-export const deleteIndustry = async (name: string) => {
+export const deleteIndustry = async (industry_id: number) => {
     const response = await api.delete(
-        `/industries/${encodeURIComponent(name)}`
+        `/industries/${industry_id}`
     );
     return response.data;
 };

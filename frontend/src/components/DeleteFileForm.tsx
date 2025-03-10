@@ -1,153 +1,235 @@
-// src/components/DeleteFileForm.tsx
-import React, { useState, useEffect } from "react";
-import { loadIndustries, loadFileLists, deleteFile } from "../utils";
-
-interface FileLists {
-    [key: string]: string[];
+import {
+    ActionIcon,
+    Anchor,
+    Box,
+    Button,
+    Group,
+    Loader,
+    Modal,
+    Select,
+    Stack,
+    Table,
+    Text,
+    Title,
+} from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import { IconDownload, IconTrash } from "@tabler/icons-react";
+import React, { useEffect, useState } from "react";
+import api from "../api/api";
+import { Industry, ReviewItem, ReviewLists } from "../types.ts";
+import { deleteFile, loadFileLists } from "../utils";
+interface DeleteFileFormProps {
+    industries: Industry[];
 }
 
-const DeleteFileForm: React.FC = () => {
-    const [industry, setIndustry] = useState<string>("");
-    const [type, setType] = useState<string>("new"); // default to "new"
-    const [industries, setIndustries] = useState<string[]>([]);
-    const [folder, setFolder] = useState<string>("");
-    const [fileLists, setFileLists] = useState<FileLists>({});
-    const [selectedFile, setSelectedFile] = useState<string>("");
-    const [message, setMessage] = useState<string>("");
-
-    // Load available industries on component mount.
-    useEffect(() => {
-        const fetchIndustries = async () => {
-            try {
-                const data = await loadIndustries();
-                setIndustries(Object.keys(data));
-            } catch (error) {
-                console.error("Error loading industries:", error);
-            }
-        };
-        fetchIndustries();
-    }, []);
-
-    // Whenever industry, type, or folder changes, load the file lists.
+const DeleteFileForm: React.FC<DeleteFileFormProps> = ({ industries }) => {
+    const [industryId, setIndustryId] = useState<number | null>(null);
+    const [fileLists, setFileLists] = useState<ReviewLists | null>(null);
+    const [deleteModalOpen, setDeleteModalOpen] = useState<boolean>(false);
+    const [fileToDelete, setFileToDelete] = useState<ReviewItem | null>(null);
+    const [isDeleting, setIsDeleting] = useState<boolean>(false);
+    console.log(industries)
     useEffect(() => {
         const fetchFileLists = async () => {
-            if (industry && type && folder) {
+            if (industryId) {
                 try {
-                    const data = await loadFileLists(industry, type);
+                    const data = await loadFileLists(industryId);
                     setFileLists(data);
+                    console.log(data);
                 } catch (error) {
-                    console.error("Error loading file lists:", error);
+                    console.error("ファイルリスト読み込みエラー:", error);
                 }
             }
         };
         fetchFileLists();
-    }, [industry, type, folder]);
+    }, [industryId]);
 
-    // Determine which file list to show based on the folder.
-    const getFilesForFolder = (): string[] => {
-        let key = "";
-        if (folder === "raw") {
-            key = "raw_new";
-        } else if (folder === "combined") {
-            key = "combined_new";
-        } else if (folder === "cleaned") {
-            key = "cleaned_new";
-        } else if (folder === "final") {
-            key = "final";
-        }
-        return fileLists[key] || [];
+    const getFilesToDisplay = (): ReviewItem[] => {
+        if (!fileLists) return [];
+
+        return fileLists["final"] || [];
     };
 
-    const handleDelete = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        if (!folder || !selectedFile) return;
+    const openDeleteModal = (file: ReviewItem) => {
+        setFileToDelete(file);
+        setDeleteModalOpen(true);
+    };
+
+    const handleDelete = async () => {
+        if (!fileToDelete) return;
+
+        setIsDeleting(true);
+        setDeleteModalOpen(false);
+
         try {
-            const data = await deleteFile({ folder, filename: selectedFile });
-            setMessage(`Success: ${data.message}`);
-            // Optionally, refresh file list after deletion:
-            const updatedData = await loadFileLists(industry, type);
-            setFileLists(updatedData);
+            const data = await deleteFile(fileToDelete.id);
+
+            notifications.show({
+                title: "成功",
+                message: data.message,
+                color: "green",
+            });
+
+            if (industryId) {
+                const updatedData = await loadFileLists(industryId);
+                setFileLists(updatedData);
+            }
         } catch (error: any) {
-            setMessage(
-                `Error: ${error.response?.data?.detail || error.message}`
-            );
+            notifications.show({
+                title: "エラー",
+                message: error.response?.data?.detail || error.message,
+                color: "red",
+            });
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const handleDownload = async (reviewId: number, displayName: string) => {
+        try {
+            const notificationId = notifications.show({
+                title: "ダウンロード中",
+                message: "ファイルを準備しています...",
+                loading: true,
+                autoClose: false,
+            });
+
+            const response = await api.get(`/reviews/download/${reviewId}`, {
+                responseType: "blob",
+            });
+            
+
+            const blob = new Blob([response.data], {
+                type: response.headers["content-type"],
+            });
+            const url = window.URL.createObjectURL(blob);
+
+            notifications.update({
+                id: notificationId,
+                title: "成功",
+                message: (
+                    <>
+                        <Text>ファイルが準備できました</Text>
+                        <Anchor href={url} download={displayName} mt="xs">
+                            {displayName} をダウンロード
+                        </Anchor>
+                    </>
+                ),
+                color: "green",
+                icon: <IconDownload />,
+                autoClose: false,
+                loading: false,
+            });
+        } catch (error) {
+            console.error("Download error:", error);
+            notifications.show({
+                title: "エラー",
+                message: "ファイルのダウンロードに失敗しました",
+                color: "red",
+            });
         }
     };
 
     return (
-        <form onSubmit={handleDelete}>
-            <h2>Delete File</h2>
-            <label>
-                Industry:
-                <select
-                    value={industry}
-                    onChange={(e) => setIndustry(e.target.value)}
+        <Box>
+            <Title order={2} mb="md">
+                カテゴリ別レビューの表示
+            </Title>
+
+            <Stack gap="md">
+                <Select
+                    label="業界"
+                    placeholder="業界を選択"
+                    data={industries.map((ind) => ({
+                        value: ind.id.toString(),
+                        label: ind.name,
+                    }))}
+                    value={industryId ? industryId.toString() : ""}
+                    onChange={(value) => setIndustryId(value ? Number(value) : null)}
                     required
-                >
-                    <option value="" disabled>
-                        Select Industry
-                    </option>
-                    {industries.map((ind) => (
-                        <option key={ind} value={ind}>
-                            {ind}
-                        </option>
-                    ))}
-                </select>
-            </label>
-            <br />
-            <label>
-                Type:
-                <select
-                    value={type}
-                    onChange={(e) => setType(e.target.value)}
-                    required
-                >
-                    <option value="" disabled>
-                        Select Type
-                    </option>
-                    <option value="new">New</option>
-                    <option value="past">Past</option>
-                </select>
-            </label>
-            <br />
-            <label>
-                Folder:
-                <select
-                    value={folder}
-                    onChange={(e) => setFolder(e.target.value)}
-                    required
-                >
-                    <option value="" disabled>
-                        Select Folder
-                    </option>
-                    <option value="raw">raw</option>
-                    <option value="combined">combined</option>
-                    <option value="cleaned">cleaned</option>
-                    <option value="final">final</option>
-                </select>
-            </label>
-            <br />
-            <label>
-                File:
-                <select
-                    value={selectedFile}
-                    onChange={(e) => setSelectedFile(e.target.value)}
-                    required
-                >
-                    <option value="" disabled>
-                        Select File
-                    </option>
-                    {getFilesForFolder().map((file) => (
-                        <option key={file} value={file}>
-                            {file}
-                        </option>
-                    ))}
-                </select>
-            </label>
-            <br />
-            <button type="submit">Delete File</button>
-            {message && <p>{message}</p>}
-        </form>
+                    searchable
+                />
+
+                {}
+                <input type="hidden" value="final" onChange={() => {}} />
+
+                <Box mt="md">
+                    <Title order={4} mb="sm">
+                        最終レビューファイル:
+                    </Title>
+
+                    {getFilesToDisplay().length > 0 ? (
+                        <Table
+                            verticalSpacing="md"
+                            stickyHeader
+                            stickyHeaderOffset={60}
+                        >
+                            <Table.Thead>
+                                <Table.Tr>
+                                    <Table.Th ta="center">Review Name</Table.Th>
+                                    <Table.Th ta="center">Actions</Table.Th>
+                                </Table.Tr>
+                            </Table.Thead>
+
+                            <Table.Tbody>
+                                {getFilesToDisplay().map((review) => (
+                                    <Table.Tr key={review.id}>
+                                        <Table.Td>
+                                            <Anchor
+                                                onClick={() =>
+                                                    handleDownload(review.id, review.display_name)
+                                                }
+                                                style={{ cursor: "pointer" }}
+                                            >
+                                                {review.display_name}
+                                            </Anchor>
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <ActionIcon
+                                                color="red"
+                                                onClick={() =>
+                                                    openDeleteModal(review)
+                                                }
+                                            >
+                                                <IconTrash size={18} />
+                                            </ActionIcon>
+                                        </Table.Td>
+                                    </Table.Tr>
+                                ))}
+                            </Table.Tbody>
+                        </Table>
+                    ) : (
+                        <Text>利用可能なファイルがありません。</Text>
+                    )}
+                </Box>
+            </Stack>
+
+            <Modal
+                opened={deleteModalOpen}
+                onClose={() => setDeleteModalOpen(false)}
+                title="Confirm Deletion"
+            >
+                <Text mb="md">
+                    ファイル「{fileToDelete?.display_name}
+                    」を削除してもよろしいですか？
+                </Text>
+                <Text mb="md" fw={700} c="red">
+                    これにより、処理チェーン内のすべての親ファイルも削除されます。
+                </Text>
+                <Text mb="md">This action cannot be undone.</Text>
+                <Group justify="flex-end">
+                    <Button
+                        variant="outline"
+                        onClick={() => setDeleteModalOpen(false)}
+                    >
+                        キャンセル
+                    </Button>
+                    <Button color="red" onClick={handleDelete} disabled={isDeleting}>
+                        {isDeleting ? <Loader size={18} /> : "削除"}
+                    </Button>
+                </Group>
+            </Modal>
+        </Box>
     );
 };
 
