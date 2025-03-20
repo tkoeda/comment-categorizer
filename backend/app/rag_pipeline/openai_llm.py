@@ -1,8 +1,10 @@
 import asyncio
 import json
 import logging
-import os
 
+from app.utils.calc_utils import time_to_seconds
+from app.utils.console_utils import display_rate_limit_progress
+from app.utils.prompts_utils import append_prompt_to_json
 from openai import AsyncOpenAI
 from rich.console import Console
 from tenacity import (
@@ -11,19 +13,18 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from utils.calc_utils import time_to_seconds
-from utils.console_utils import display_rate_limit_progress
-from utils.prompts_utils import append_prompt_to_json
 
 logger = logging.getLogger(__name__)
 console = Console()
 
 
 class OpenAILLM:
-    def __init__(self, model="gpt-4o-mini-2024-07-18", temperature=0.5):
+    def __init__(
+        self, api_key=None, model="gpt-4o-mini-2024-07-18", temperature=0.5
+    ):
         self.model = model
         self.temperature = temperature
-        self.client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        self.client = AsyncOpenAI(api_key=api_key)
         self.api_call_durations = []
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
@@ -42,7 +43,7 @@ class OpenAILLM:
         Returns a JSON object with a "results" key containing a list of classification objects.
         """
         prompt = self._build_prompt(reviews, similar_reviews_list, categories)
-        append_prompt_to_json(prompt, output_file="prompts.json")
+        # append_prompt_to_json(prompt, output_file="prompts.json")
         chat_params = {
             "model": self.model,
             "messages": [{"role": "system", "content": prompt}],
@@ -155,7 +156,6 @@ class OpenAILLM:
         response = raw_response.parse()
 
         headers = raw_response.headers
-
 
         self.api_call_durations.append(int(headers.get("openai-processing-ms", 0)))
         self.total_prompt_tokens += response.usage.prompt_tokens

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
 
@@ -32,9 +32,9 @@ def fetch_historical_reviews_from_excel(excel_path, default_industry=None):
             for _, row in df.iterrows():
                 review_text = row["コメント_cleaned"]
                 if pd.isna(review_text):
-                    logger.warning(
-                        "Skipping row in sheet '%s' due to missing comment.", sheet
-                    )
+                    # logger.warning(
+                    #     "Skipping row in sheet '%s' due to missing comment.", sheet
+                    # )
                     continue
                 industry = (
                     default_industry if default_industry is not None else "unknown"
