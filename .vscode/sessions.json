@@ -1,0 +1,39 @@
+{
+    "$schema": "https://cdn.statically.io/gh/nguyenngoclongdev/cdn/main/schema/v10/terminal-keeper.json",
+    "theme": "tribe",
+    "active": "default",
+    "activateOnStartup": false,
+    "keepExistingTerminals": false,
+    "sessions": {
+        "default": [
+            [
+                {
+                    "name": "frontend",
+                    "autoExecuteCommands": true,
+                    "color": "terminal.ansiGreen",
+                    "commands": [
+                        "cd frontend",
+                        "npm run dev"
+                    ]
+                },
+                {
+                    "name": "backend",
+                    "autoExecuteCommands": true,
+                    "color": "terminal.ansiGreen",
+                    "commands": [
+                        "cd backend/app",
+                        "uvicorn main:app --reload"
+                    ]
+                }
+            ]
+        ],
+        "saved-session": [
+            {
+                "name": "connect",
+                "commands": [
+                    ""
+                ]
+            }
+        ]
+    }
+}
