@@ -1,18 +1,25 @@
-# Use an official Python runtime as a parent image
 FROM python:3.12-slim
+RUN apt-get update && apt-get install -y \
+    mecab \
+    libmecab-dev \
+    mecab-ipadic-utf8 \
+    libpq-dev \
+    gcc \
+    python3-dev 
 
-# Set working directory
-WORKDIR /app
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Install dependencies
+WORKDIR /code 
+
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of your backend code
 COPY . .
 
-# Expose the FastAPI port (e.g., 8000)
 EXPOSE 8000
 
-# Run your backend
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/entrypoint.sh"]
+
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]

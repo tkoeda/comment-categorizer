@@ -175,7 +175,6 @@ async def process_reviews_in_batches_async(
     status_tracker = StatusTracker()
     retry_queue = asyncio.Queue()
 
-
     tasks = [
         process_batch_wrapper(
             batch,
@@ -208,7 +207,6 @@ async def process_reviews_in_batches_async(
         if result is not None:
             batch_results.append(result)
 
-
     results = []
     for br in batch_results:
         if br is not None:
@@ -230,7 +228,6 @@ async def process_reviews_in_batches_async(
         status_tracker=status_tracker,
         avg_length=avg_length,
     )
-
 
 
 class DummyFaissRetriever:
@@ -255,8 +252,6 @@ class DummyLLM:
                     for i in range(len(reviews))
                 ]
             }
-
-
 
 
 async def test_batch_retry():

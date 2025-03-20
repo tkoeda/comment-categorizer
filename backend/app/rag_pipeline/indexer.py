@@ -1,14 +1,22 @@
+import asyncio
+import logging
 import os
 import pickle
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional
 
 import faiss
-from constants import CACHE_DIR, INDEX_DIR
-from models.models import Industry, IndustryIndex
-from rag_pipeline.data_loader import fetch_historical_reviews_from_excel
+from app.constants import CACHE_DIR, INDEX_DIR
+from app.models.index import Index
+from app.models.industries import Industry
+from app.rag_pipeline.data_loader import fetch_historical_reviews_from_excel
 from sentence_transformers import SentenceTransformer
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class DummyRetriever:
@@ -17,10 +25,32 @@ class DummyRetriever:
 
 
 class FaissRetriever:
-    def __init__(
+    @classmethod
+    async def create(
+        cls,
+        industry: Industry,
+        db: Optional[AsyncSession] = None,
+        past_excel_path: Optional[str] = None,
+        embeddings_model="pkshatech/GLuCoSE-base-ja-v2",
+        index_dir=INDEX_DIR,
+    ):
+        # Create an instance with minimal initialization
+        instance = cls.__new__(cls)
+
+        # Complete the async initialization
+        await instance.init_async(
+            industry, db, past_excel_path, embeddings_model, index_dir
+        )
+
+        return instance
+
+    def __init__(self):
+        pass
+
+    async def init_async(
         self,
         industry: Industry,
-        db: Optional[Session] = None,
+        db: Optional[AsyncSession] = None,
         past_excel_path: Optional[str] = None,
         embeddings_model="pkshatech/GLuCoSE-base-ja-v2",
         index_dir=INDEX_DIR,
@@ -31,28 +61,28 @@ class FaissRetriever:
         self.embeddings_model = SentenceTransformer(embeddings_model)
         self.industry_obj = industry
         self.industry_name = industry.name
-        if db is not None:
-            print("Database session provided")
-        else:
-            print("No database session provided")
 
+        # if db is not None:
+        #     print("Database session provided")
+        # else:
+        #     print("No database session provided")
+
+        self.index_info = None
+
+        # Perform the async database operation
         if db is not None and self.industry_obj is not None:
             print(
                 f"Checking for existing index in database for industry ID: {self.industry_obj.id}"
             )
-            self.index_info = (
-                db.query(IndustryIndex)
-                .filter(IndustryIndex.industry_id == self.industry_obj.id)
-                .first()
-            )
-            if self.index_info:
-                print(
-                    f"Found existing index record in database: {self.index_info.id}"
-                )
-            else:
-                print("No existing index record found in database")
-        else:
-            self.index_info = None
+            stmt = select(Index).filter(Index.industry_id == self.industry_obj.id)
+            result = await db.execute(stmt)
+            self.index_info = result.scalar_one_or_none()
+            # if self.index_info:
+            #     print(
+            #         f"Found existing index record in database: {self.index_info.id}"
+            #     )
+            # else:
+            #     print("No existing index record found in database")
 
         if self.index_info:
             self.index_path = self.index_info.index_path
@@ -66,18 +96,18 @@ class FaissRetriever:
             )
 
         if os.path.exists(self.index_path) and os.path.exists(self.cache_path):
-            print(f"Index file {self.index_path} found. Loading index...")
+            # print(f"Index file {self.index_path} found. Loading index...")
             self._load_cached_data()
             self.index = faiss.read_index(self.index_path)
         elif past_excel_path:
-            print(
-                f"Index file {self.index_path} does not exist. Generating FAISS index..."
-            )
+            # print(
+            #     f"Index file {self.index_path} does not exist. Generating FAISS index..."
+            # )
             self.past_excel_path = past_excel_path
-            self.generate_index()
+            await self.generate_index()
 
             if db is not None and self.industry_obj is not None:
-                self._update_index_record(db)
+                await self._update_index_record(db)
         else:
             raise ValueError(
                 "Index does not exist and no past_excel_path provided to create it."
@@ -89,13 +119,13 @@ class FaissRetriever:
             self.documents = pickle.load(f)
         self.texts = [f"passage: {doc.page_content}" for doc in self.documents]
 
-    def _update_index_record(self, db: Session):
+    async def _update_index_record(self, db: AsyncSession):
         """Create or update the index record in the database"""
 
         now = datetime.now(timezone.utc)
 
         if not self.index_info:
-            self.index_info = IndustryIndex(
+            self.index_info = Index(
                 industry_id=self.industry_obj.id,
                 index_path=self.index_path,
                 cached_data_path=self.cache_path,
@@ -112,9 +142,19 @@ class FaissRetriever:
             self.index_info.reviews_included = len(self.documents)
             self.index_info.updated_at = now
 
-        db.commit()
+        # print("Saving index record to database...")
+        await db.commit()
 
-    def generate_index(self):
+    async def generate_index(self):
+        """Asynchronous wrapper for index generation"""
+        loop = asyncio.get_running_loop()
+
+        # Run CPU-intensive work in a ThreadPoolExecutor
+        with ThreadPoolExecutor() as executor:
+            await loop.run_in_executor(executor, self._generate_index_sync)
+
+    def _generate_index_sync(self):
+        """Synchronous version of generate_index to run in a thread"""
         self.documents = fetch_historical_reviews_from_excel(
             self.past_excel_path, self.industry_name
         )
@@ -133,7 +173,7 @@ class FaissRetriever:
 
         os.makedirs(self.index_dir, exist_ok=True)
         faiss.write_index(index, self.index_path)
-        print(f"Generated and saved FAISS index at: {self.index_path}")
+        logger.info(f"Generated and saved FAISS index at: {self.index_path}")
 
         os.makedirs(CACHE_DIR, exist_ok=True)
         cache_file = os.path.join(
@@ -141,22 +181,33 @@ class FaissRetriever:
         )
         with open(cache_file, "wb") as f:
             pickle.dump(self.documents, f)
-        print(f"Cached past reviews at: {cache_file}")
+        logger.info(f"Cached past reviews at: {cache_file}")
 
-    def update_index(
+        self.index = index
+
+    async def update_index(
         self,
         new_past_excel_path: str,
-        db: Optional[Session] = None,
+        db: Optional[AsyncSession] = None,
         replace: bool = False,
     ):
         """
         Update the index with new past reviews.
-
-        Args:
-            new_past_excel_path: Path to Excel file with new past reviews
-            db: Database session for updating records
-            replace: If True, replace the entire index; if False, add to existing index
         """
+        loop = asyncio.get_running_loop()
+
+        # Run CPU-intensive work in a ThreadPoolExecutor
+        with ThreadPoolExecutor() as executor:
+            await loop.run_in_executor(
+                executor, self._update_index_sync, new_past_excel_path, replace
+            )
+
+        # Only update the database record after the CPU-intensive work is done
+        if db is not None and self.industry_obj is not None:
+            await self._update_index_record(db)
+
+    def _update_index_sync(self, new_past_excel_path: str, replace: bool = False):
+        """Synchronous version of update_index to run in a thread"""
         new_documents = fetch_historical_reviews_from_excel(
             new_past_excel_path, self.industry_name
         )
@@ -189,13 +240,10 @@ class FaissRetriever:
         with open(self.cache_path, "wb") as f:
             pickle.dump(self.documents, f)
 
-        print(
+        logger.info(
             f"{'Replaced' if replace else 'Updated'} FAISS index at: {self.index_path}"
         )
-        print(f"Total documents in index: {len(self.documents)}")
-
-        if db is not None and self.industry_obj is not None:
-            self._update_index_record(db)
+        logger.info(f"Total documents in index: {len(self.documents)}")
 
     def batch_retrieve_similar_reviews(self, reviews, top_k=3):
         query_texts = [f"query: {review}" for review in reviews]

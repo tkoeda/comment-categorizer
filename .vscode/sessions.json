@@ -21,8 +21,8 @@
                     "autoExecuteCommands": true,
                     "color": "terminal.ansiGreen",
                     "commands": [
-                        "cd backend/app",
-                        "uvicorn main:app --reload"
+                        "cd backend",
+                        "uvicorn app.main:app --reload"
                     ]
                 }
             ]
