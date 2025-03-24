@@ -25,6 +25,7 @@ async def update_job_status(
     status: str,
     error: Optional[str] = None,
     reviews_included: Optional[int] = None,
+    progress: Optional[float] = None,
 ):
     """Update the status of a job"""
     try:
@@ -36,6 +37,8 @@ async def update_job_status(
                 index_job.error = error
             if reviews_included is not None:
                 index_job.reviews_included = reviews_included
+            if progress is not None:
+                index_job.progress = progress
             index_job.updated_at = datetime.now(timezone.utc)
             await db.commit()
     except SQLAlchemyError:

@@ -253,28 +253,3 @@ class DummyLLM:
                     for i in range(len(reviews))
                 ]
             }
-
-
-async def test_batch_retry():
-    new_reviews = [{"id": 1, "text": "This is a test review.", "industry": "tech"}]
-    industry_categories = {"tech": ["TestCategory", "Other"]}
-
-    dummy_faiss = DummyFaissRetriever()
-    dummy_llm = DummyLLM()
-
-    result = await process_reviews_in_batches_async(
-        new_reviews=new_reviews,
-        faiss_retriever=dummy_faiss,
-        llm=dummy_llm,
-        industry_categories=industry_categories,
-        reviews_per_batch=1,
-        max_concurrent_batches=1,
-        max_attempts=2,
-    )
-
-    print("Status Tracker:", result.status_tracker)
-    print("Results:", result.results)
-
-
-if __name__ == "__main__":
-    asyncio.run(test_batch_retry())

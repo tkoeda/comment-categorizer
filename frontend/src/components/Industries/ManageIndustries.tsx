@@ -52,7 +52,7 @@ const ManageIndustries: React.FC<ManageIndustriesProps> = ({
         } catch (error: any) {
             notifications.show({
                 title: "エラー",
-                message: error.response?.data?.detail || error.message,
+                message: error.response.data.detail || error.message,
                 color: "red",
                 icon: <IconX size={20} />,
             });
