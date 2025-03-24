@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import faiss
+import tqdm
 from app.constants import CACHE_DIR, INDEX_DIR
 from app.models.index import Index
 from app.models.industries import Industry
@@ -71,18 +72,18 @@ class FaissRetriever:
 
         # Perform the async database operation
         if db is not None and self.industry_obj is not None:
-            print(
+            logger.info(
                 f"Checking for existing index in database for industry ID: {self.industry_obj.id}"
             )
             stmt = select(Index).filter(Index.industry_id == self.industry_obj.id)
             result = await db.execute(stmt)
             self.index_info = result.scalar_one_or_none()
-            # if self.index_info:
-            #     print(
-            #         f"Found existing index record in database: {self.index_info.id}"
-            #     )
-            # else:
-            #     print("No existing index record found in database")
+            if self.index_info:
+                logger.debug(
+                    f"Found existing index record in database: {self.index_info.id}"
+                )
+            else:
+                logger.debug("No existing index record found in database")
 
         if self.index_info:
             self.index_path = self.index_info.index_path
@@ -100,9 +101,9 @@ class FaissRetriever:
             self._load_cached_data()
             self.index = faiss.read_index(self.index_path)
         elif past_excel_path:
-            # print(
-            #     f"Index file {self.index_path} does not exist. Generating FAISS index..."
-            # )
+            logger.debug(
+                f"Index file {self.index_path} does not exist. Generating FAISS index..."
+            )
             self.past_excel_path = past_excel_path
             await self.generate_index()
 
@@ -167,7 +168,7 @@ class FaissRetriever:
         index = faiss.IndexFlatL2(dimension)
         batch_size = 100
         total_embeddings = embeddings.shape[0]
-        for i in range(0, total_embeddings, batch_size):
+        for i in tqdm.tqdm(range(0, total_embeddings, batch_size)):
             batch = embeddings[i : i + batch_size]
             index.add(batch)
 
@@ -232,7 +233,7 @@ class FaissRetriever:
 
         batch_size = 100
         total_embeddings = new_embeddings.shape[0]
-        for i in range(0, total_embeddings, batch_size):
+        for i in tqdm.tqdm(range(0, total_embeddings, batch_size)):
             batch = new_embeddings[i : i + batch_size]
             self.index.add(batch)
 

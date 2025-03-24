@@ -1,3 +1,4 @@
+import base64
 import os
 import time
 
@@ -25,13 +26,14 @@ from app.schemas.reviews import (
     FileListResponse,
     ProcessReviewsSavedRequest,
 )
-from app.utils.io_utils import (
+from app.utils.common.io_utils import (
     get_unique_filename,
 )
-from app.utils.reviews import classify_and_merge
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from app.utils.routers.reviews import classify_and_merge, clean_up_files
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from rich.console import Console
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -66,46 +68,59 @@ async def list_files(
         "past": {"cleaned": [], "combined": []},
         "final": [],
     }
-    if industry_id:
-        stmt = select(Industry).filter(Industry.id == industry_id)
-        result = await db.execute(stmt)
-        industry = result.scalar_one_or_none()
-        if not industry:
-            raise HTTPException(status_code=404, detail="Industry not found")
+    try:
+        if industry_id:
+            industry = await get_industry(db, industry_id)
+            if not industry:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Industry not found",
+                )
 
-        if review_type and review_type not in ["new", "past"]:
-            raise HTTPException(status_code=400, detail="Invalid review type")
+            if review_type and review_type not in ["new", "past"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid review type",
+                )
 
-        stmt_reviews = select(Review).filter(
-            Review.industry_id == industry_id, Review.user_id == current_user.id
+            stmt_reviews = select(Review).filter(
+                Review.industry_id == industry_id, Review.user_id == current_user.id
+            )
+            if review_type:
+                stmt_reviews = stmt_reviews.filter(Review.review_type == review_type)
+            reviews_result = await db.execute(stmt_reviews)
+            reviews = reviews_result.scalars().all()
+            for review in reviews:
+                file_item = {
+                    "id": review.id,
+                    "display_name": review.display_name,
+                    "file_path": review.file_path,
+                    "stage": review.stage,
+                    "review_type": review.review_type,
+                    "created_at": review.created_at.isoformat(),
+                }
+
+                review_type = review.review_type
+                if review_type == "final":
+                    response["final"].append(file_item)
+                else:
+                    stage = review.stage
+
+                    if stage not in response[review_type]:
+                        response[review_type][stage] = []
+
+                    response[review_type][stage].append(file_item)
+        return response
+    except SQLAlchemyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}",
         )
-        if review_type:
-            stmt_reviews = stmt_reviews.filter(Review.review_type == review_type)
-        reviews_result = await db.execute(stmt_reviews)
-        reviews = reviews_result.scalars().all()
-        # Organize files by review type and stage
-        for review in reviews:
-            file_item = {
-                "id": review.id,
-                "display_name": review.display_name,
-                "file_path": review.file_path,
-                "stage": review.stage,
-                "review_type": review.review_type,
-                "created_at": review.created_at.isoformat(),
-            }
-
-            review_type = review.review_type  # 'new' or 'past'
-            if review_type == "final":
-                response["final"].append(file_item)
-            else:
-                stage = review.stage  # 'cleaned', 'combined', etc.
-
-                # Add to specific stage list
-                if stage not in response[review_type]:
-                    response[review_type][stage] = []
-
-                response[review_type][stage].append(file_item)
-    return response
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}",
+        )
 
 
 @router.post("/combine_and_clean", response_model=CombineAndCleanResponse)
@@ -127,24 +142,28 @@ async def combine_and_clean_endpoint(
 
     Returns paths to both combined and cleaned files.
     """
+    if review_type not in ["new", "past"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Type must be 'new' or 'past'.",
+        )
+
+    industry = await get_industry(db, industry_id)
+
+    if not industry:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found."
+        )
+
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="No files uploaded."
+        )
     temp_files = []
-    combined_review = None
     combined_file = None
     cleaned_file = None
-    db_transaction_started = False
 
     try:
-        if review_type not in ["new", "past"]:
-            raise HTTPException(
-                status_code=400, detail="Type must be 'new' or 'past'."
-            )
-
-        industry = await get_industry(db, industry_id)
-
-        if not industry:
-            raise HTTPException(status_code=404, detail="Industry not found.")
-
-        # Set up directories
         if review_type == "new":
             raw_dir = os.path.join(REVIEW_FOLDER_PATHS["new"]["raw"], industry.name)
             combined_dir = os.path.join(
@@ -162,16 +181,10 @@ async def combine_and_clean_endpoint(
                 REVIEW_FOLDER_PATHS["past"]["cleaned"], industry.name
             )
 
-        # Create directories if they don't exist
         os.makedirs(raw_dir, exist_ok=True)
         os.makedirs(combined_dir, exist_ok=True)
         os.makedirs(cleaned_dir, exist_ok=True)
 
-        # Check if files were uploaded
-        if not files:
-            raise HTTPException(status_code=400, detail="No files uploaded.")
-
-        # Save uploaded files to raw directory
         for file in files:
             try:
                 file_path = os.path.join(raw_dir, file.filename)
@@ -179,16 +192,15 @@ async def combine_and_clean_endpoint(
                     content = await file.read()
                     f.write(content)
                 temp_files.append(file_path)
-            except Exception:
+            except IOError:
                 raise HTTPException(
-                    status_code=500, detail="Failed to save uploaded files"
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to save file: {file.filename}",
                 )
 
-        # Generate timestamp and formatted date for filenames
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         readable_date = time.strftime("%B %d, %Y")
 
-        # Generate output filename for combined file
         combined_file = get_unique_filename(
             base_dir=combined_dir,
             review_type=review_type,
@@ -197,74 +209,70 @@ async def combine_and_clean_endpoint(
             timestamp=timestamp,
         )
 
-        # Combine Excel files
         input_glob = os.path.join(raw_dir, "*.xlsx")
-        combine_excel(input_glob, combined_file)
+        try:
+            combine_excel(input_glob, combined_file)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to combine Excel files: {str(e)}",
+            )
 
         if not os.path.exists(combined_file):
             raise HTTPException(
-                status_code=500, detail="Combination failed, output file not found."
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Combination failed, output file not found.",
             )
 
-        # Create a display name for the combined file if not provided
         if not display_name:
             display_name = f"{industry.name.title()} {review_type.title()} Reviews - {readable_date}"
 
-        # Create cleaned file path
         base_filename = os.path.basename(combined_file)
         base, ext = os.path.splitext(base_filename)
         cleaned_filename = f"{base}_cleaned{ext}"
         cleaned_file = os.path.join(cleaned_dir, cleaned_filename)
 
-        # Clean the combined file
-        clean_excel_file(combined_file, cleaned_file)
+        try:
+            clean_excel_file(combined_file, cleaned_file)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to clean Excel file: {str(e)}",
+            )
 
         if not os.path.exists(cleaned_file):
             raise HTTPException(
                 status_code=500, detail="Cleaning failed, output file not found."
             )
 
-        # Check if the session is already in a transaction
-        # and only start a new one if needed
-        if not db.in_transaction():
-            await db.begin()
-            db_transaction_started = True
+        try:
+            combined_review = await create_review(
+                db,
+                industry_id=industry_id,
+                review_type=review_type,
+                display_name=f"{display_name} - Combined",
+                stage="combined",
+                file_path=combined_file,
+                user_id=current_user.id,
+            )
 
-        # Save combined file metadata to database
-        combined_review = await create_review(
-            db,
-            industry_id=industry_id,
-            review_type=review_type,
-            display_name=f"{display_name} - Combined",
-            stage="combined",
-            file_path=combined_file,
-            user_id=current_user.id,
-        )
+            cleaned_review = await create_review(
+                db,
+                industry_id=industry_id,
+                review_type=review_type,
+                display_name=f"{display_name} - Cleaned",
+                stage="cleaned",
+                file_path=cleaned_file,
+                parent_id=combined_review.id,
+                user_id=current_user.id,
+            )
 
-        # Save cleaned file metadata to database
-        cleaned_review = await create_review(
-            db,
-            industry_id=industry_id,
-            review_type=review_type,
-            display_name=f"{display_name} - Cleaned",
-            stage="cleaned",
-            file_path=cleaned_file,
-            parent_id=combined_review.id,
-            user_id=current_user.id,
-        )
-
-        # Commit the transaction if we started it
-        if db_transaction_started:
-            await db.commit()
-            db_transaction_started = False
-
-        # Clean up temporary files
+        except SQLAlchemyError:
+            raise
         for filename in os.listdir(raw_dir):
             if filename.endswith(".xlsx"):
                 src_path = os.path.join(raw_dir, filename)
-                if (
-                    src_path in temp_files
-                ):  # Only remove files we created in this session
+                if src_path in temp_files:
                     os.remove(src_path)
 
         return CombineAndCleanResponse(
@@ -274,30 +282,12 @@ async def combine_and_clean_endpoint(
             combined_review_id=combined_review.id,
             cleaned_review_id=cleaned_review.id,
         )
-
     except Exception as e:
-        # Rollback the transaction if we started it and an error occurred
-        if db_transaction_started:
-            await db.rollback()
-
-        # Clean up temporary files
-        for file_path in temp_files:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-
-        # Delete combined file if it was created
-        if combined_file and os.path.exists(combined_file):
-            os.remove(combined_file)
-
-        # Delete cleaned file if it was created
-        if cleaned_file and os.path.exists(cleaned_file):
-            os.remove(cleaned_file)
-
-        # Re-raise as HTTP exception for the API
-        if isinstance(e, HTTPException):
-            raise e
-        else:
-            raise HTTPException(status_code=500, detail=f"Process failed: {str(e)}")
+        clean_up_files(temp_files, combined_file, cleaned_file)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Process failed: {str(e)}",
+        )
 
 
 @router.post("/process_reviews")
@@ -312,84 +302,114 @@ async def process_reviews_saved_endpoint(
     The classification pipeline is run using the selected files and the past reviews file,
     then the results are merged and the final Excel file is returned for download.
     """
-    industry_id = request.industry_id
-    use_past_reviews = request.use_past_reviews
-    new_cleaned_id = request.new_cleaned_id
-    display_name = request.display_name
-    user_api_key = current_user.openai_api_key
-    if not user_api_key:
+    if not current_user.openai_api_key:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="No OpenAI API key found. Please add your API key in your account settings.",
         )
 
-    industry = await get_industry(db, industry_id)
+    industry = await get_industry(db, request.industry_id)
 
+    if not industry:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found."
+        )
     new_cleaned_review = await get_review(
-        db, id=new_cleaned_id, user_id=current_user.id
+        db, id=request.new_cleaned_id, user_id=current_user.id
     )
     if not new_cleaned_review:
         raise HTTPException(
-            status_code=400, detail="Selected new cleaned file not found."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Selected new cleaned file not found.",
         )
-    new_combined_review = new_cleaned_review.parent
-    new_combined_filepath = new_combined_review.file_path
 
-    if not os.path.exists(new_combined_filepath):
+    if not os.path.exists(new_cleaned_review.file_path):
         raise HTTPException(
-            status_code=400, detail="New combined file path not found."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="New cleaned file not found on disk.",
         )
-    new_reviews = fetch_new_reviews_from_excel(
-        excel_path=new_cleaned_review.file_path, default_industry=industry.name
-    )
 
-    retriever = DummyRetriever()
-    if use_past_reviews:
-        stmt = select(Index).filter(Index.industry_id == industry_id)
-        result = await db.execute(stmt)
-        index_info = result.scalar_one_or_none()
-        if index_info and os.path.exists(index_info.index_path):
-            try:
-                retriever = await FaissRetriever.create(
-                    industry=industry,
-                    db=db,
-                )
-            except Exception as e:
-                print(f"Error initializing retriever: {str(e)}")
+    new_combined_review = new_cleaned_review.parent
+    if not new_combined_review:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Combined review file not found.",
+        )
+
+    if not os.path.exists(new_combined_review.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="New combined file not found on disk.",
+        )
+    try:
+        new_reviews = fetch_new_reviews_from_excel(
+            excel_path=new_cleaned_review.file_path, default_industry=industry.name
+        )
+
+        retriever = DummyRetriever()
+        if request.use_past_reviews:
+            stmt = select(Index).filter(Index.industry_id == request.industry_id)
+            result = await db.execute(stmt)
+            index_info = result.scalar_one_or_none()
+            if index_info and os.path.exists(index_info.index_path):
+                try:
+                    retriever = await FaissRetriever.create(
+                        industry=industry,
+                        db=db,
+                    )
+                except Exception as e:
+                    print(f"Error initializing retriever: {str(e)}")
+                    retriever = DummyRetriever()
+            else:
+                print("No index found for industry. Skipping FAISS retrieval.")
                 retriever = DummyRetriever()
-        else:
-            print("No index found for industry. Skipping FAISS retrieval.")
-            retriever = DummyRetriever()
 
-    output_excel_path = await classify_and_merge(
-        industry=industry,
-        new_reviews=new_reviews,
-        retriever=retriever,
-        new_combined_path=new_combined_filepath,
-        new_cleaned_path=new_cleaned_review.file_path,
-        use_past_reviews=use_past_reviews,
-        user_api_key=user_api_key,
-    )
+        output_excel_path = await classify_and_merge(
+            industry=industry,
+            new_reviews=new_reviews,
+            retriever=retriever,
+            new_combined_path=new_combined_review.file_path,
+            new_cleaned_path=new_cleaned_review.file_path,
+            use_past_reviews=request.use_past_reviews,
+            user_api_key=current_user.openai_api_key,
+        )
 
-    if not display_name:
-        display_name = new_cleaned_review.display_name.replace("Cleaned", "Final")
+        display_name = (
+            request.display_name
+            or new_cleaned_review.display_name.replace("Cleaned", "Final")
+        )
 
-    await create_review(
-        db,
-        industry_id=industry_id,
-        review_type="final",
-        display_name=display_name,
-        stage="final",
-        file_path=output_excel_path,
-        parent_id=new_cleaned_review.id,
-        user_id=current_user.id,
-    )
+        await create_review(
+            db,
+            industry_id=request.industry_id,
+            review_type="final",
+            display_name=display_name,
+            stage="final",
+            file_path=output_excel_path,
+            parent_id=new_cleaned_review.id,
+            user_id=current_user.id,
+        )
+        encoded_display_name = base64.b64encode(display_name.encode("utf-8")).decode(
+            "ascii"
+        )
 
-    return FileResponse(
-        output_excel_path,
-        filename="categorized_reviews.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+        response = FileResponse(
+            output_excel_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response.headers["X-Filename-Base64"] = encoded_display_name
+        response.headers["Access-Control-Expose-Headers"] = "X-Filename-Base64"
+        return response
+    except SQLAlchemyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process reviews: {str(e)}",
+        )
 
 
 @router.delete("/{review_id}")
@@ -402,17 +422,30 @@ async def delete_review(
     Delete a review and cascade deletion upward to its ancestors.
     Returns success status and message.
     """
-    success = await delete_review_cascade_up(db, review_id, user_id=current_user.id)
-
-    if not success:
-        raise HTTPException(
-            status_code=404, detail=f"Review with ID {review_id} not found"
+    try:
+        success = await delete_review_cascade_up(
+            db, review_id, user_id=current_user.id
         )
 
-    return {
-        "success": True,
-        "message": f"Review with ID {review_id} and its ancestors deleted successfully",
-    }
+        if not success:
+            raise HTTPException(
+                status_code=404, detail=f"Review with ID {review_id} not found"
+            )
+
+        return {
+            "success": True,
+            "message": f"Review with ID {review_id} and its ancestors deleted successfully",
+        }
+    except SQLAlchemyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}",
+        )
 
 
 @router.get("/download/{review_id}")
@@ -424,21 +457,29 @@ async def download_file(
     """
     Download a review file by its ID
     """
-    # Find the review in the database
-    stmt = select(Review).filter(Review.id == review_id)
-    result = await db.execute(stmt)
-    review = result.scalar_one_or_none()
+    try:
+        stmt = select(Review).filter(Review.id == review_id)
+        result = await db.execute(stmt)
+        review = result.scalar_one_or_none()
 
-    if not review:
-        raise HTTPException(status_code=404, detail="Review not found")
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found")
 
-    # Check if file exists
-    if not os.path.exists(review.file_path):
-        raise HTTPException(status_code=404, detail="File not found on server")
+        if not os.path.exists(review.file_path):
+            raise HTTPException(status_code=404, detail="File not found on server")
 
-    # Return file response with proper content type for Excel
-    return FileResponse(
-        review.file_path,
-        filename=review.display_name,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+        return FileResponse(
+            review.file_path,
+            filename=review.display_name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except SQLAlchemyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}",
+        )

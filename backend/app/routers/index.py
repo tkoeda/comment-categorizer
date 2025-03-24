@@ -7,29 +7,30 @@ from app.constants import (
     DATA_DIR,
 )
 from app.core.database import AsyncSessionLocal, get_db
+from app.crud.index import create_index_job, get_index, get_index_job
 from app.crud.industries import get_industry
 from app.crud.reviews import (
     get_review,
 )
-from app.index.schemas import (
+from app.models.users import User
+from app.schemas.index import (
     IndexStatusResponse,
     UpdatePastReviewsIndexRequest,
 )
-from app.index.utils import create_index_job, get_job_status, process_index_job
-from app.models.index import Index
-from app.models.users import User
+from app.utils.routers.index import (
+    process_index_job,
+)
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     HTTPException,
     WebSocket,
     WebSocketDisconnect,
+    status,
 )
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
-logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 REVIEWS_DIR = os.path.join(DATA_DIR, "reviews")
@@ -57,36 +58,45 @@ async def get_index_status(
     Returns information about whether the index exists, how many reviews it contains,
     and when it was last updated.
     """
-    industry = await get_industry(db, industry_id)
-    if not industry:
-        raise HTTPException(status_code=404, detail="Industry not found")
 
-    # Check if industry has an index record
-    stmt = select(Index).filter(Index.industry_id == industry_id)
-    result = await db.execute(stmt)
-    index_info = result.scalar_one_or_none()
+    try:
+        industry = await get_industry(db, industry_id)
+        if not industry:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found"
+            )
 
-    if not index_info:
+        index = await get_index(db, industry_id)
+
+        if not index:
+            return {
+                "exists": False,
+                "count": 0,
+                "lastUpdated": None,
+            }
+
+        index_exists = os.path.exists(index.index_path)
+
         return {
-            "exists": False,
-            "count": 0,
-            "lastUpdated": None,
+            "exists": index_exists,
+            "count": index.reviews_included if index_exists else 0,
+            "lastUpdated": index.updated_at.isoformat() if index_exists else None,
         }
-
-    # Verify index file actually exists
-    index_exists = os.path.exists(index_info.index_path)
-
-    return {
-        "exists": index_exists,
-        "count": index_info.reviews_included if index_exists else 0,
-        "lastUpdated": index_info.updated_at.isoformat() if index_exists else None,
-    }
+    except SQLAlchemyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal error: {str(e)}",
+        )
 
 
 @router.post("/update_past_reviews_index")
 async def update_past_reviews_index_endpoint(
     request: UpdatePastReviewsIndexRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -98,42 +108,53 @@ async def update_past_reviews_index_endpoint(
         past_cleaned_id: ID of the past cleaned review to add
         mode: "add" to add to existing index, "replace" to create a new index
     """
-    industry_id = request.industry_id
-    past_cleaned_id = request.past_cleaned_id
-    mode = request.mode
-    # Validate inputs
-    if mode not in ["add", "replace"]:
-        raise HTTPException(
-            status_code=400, detail="Mode must be 'add' or 'replace'"
+
+    try:
+        if request.mode not in ["add", "replace"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Mode must be 'add' or 'replace'",
+            )
+
+        industry = await get_industry(db, request.industry_id)
+        if not industry:
+            raise HTTPException(status_code=404, detail="Industry not found")
+
+        past_review = await get_review(db, id=request.past_cleaned_id)
+        if not past_review:
+            raise HTTPException(status_code=404, detail="Past review not found")
+
+        if past_review.review_type != "past" or past_review.stage != "cleaned":
+            raise HTTPException(
+                status_code=400,
+                detail="Selected review must be a cleaned past review",
+            )
+        job_id = await create_index_job(db, request.industry_id)
+
+        asyncio.create_task(
+            process_index_job(
+                job_id=job_id,
+                industry_id=request.industry_id,
+                past_cleaned_id=request.past_cleaned_id,
+                mode=request.mode,
+            ),
+            name=f"job{job_id}",
         )
-
-    industry = await get_industry(db, industry_id)
-    if not industry:
-        raise HTTPException(status_code=404, detail="Industry not found")
-
-    past_review = await get_review(db, id=past_cleaned_id)
-    if not past_review:
-        raise HTTPException(status_code=404, detail="Past review not found")
-
-    if past_review.review_type != "past" or past_review.stage != "cleaned":
+        return {
+            "message": f"Index {'replacement' if request.mode == 'replace' else 'update'} job scheduled",
+            "job_id": job_id,
+            "status": "pending",
+        }
+    except SQLAlchemyError as e:
         raise HTTPException(
-            status_code=400, detail="Selected review must be a cleaned past review"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}",
         )
-    job_id = await create_index_job(db, industry_id)
-
-    # Add the task to run in the background
-    background_tasks.add_task(
-        process_index_job,
-        job_id=job_id,
-        industry_id=industry_id,
-        past_cleaned_id=past_cleaned_id,
-        mode=mode,
-    )
-    return {
-        "message": f"Index {'replacement' if mode == 'replace' else 'update'} job scheduled",
-        "job_id": job_id,
-        "status": "pending",
-    }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal error: {str(e)}",
+        )
 
 
 @router.get("/index_job_status/{job_id}")
@@ -143,26 +164,37 @@ async def check_index_job_status(
     current_user: User = Depends(get_current_user),
 ):
     """Check the status of an index generation/update job"""
-    print("Checking index job status")
-    job = await get_job_status(db, job_id)
+    try:
+        job = await get_index_job(db, job_id)
 
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
 
-    response = {
-        "job_id": job.id,
-        "status": job.status,
-        "created_at": job.created_at.isoformat(),
-        "updated_at": job.updated_at.isoformat(),
-    }
+        response = {
+            "job_id": job.id,
+            "status": job.status,
+            "created_at": job.created_at.isoformat(),
+            "updated_at": job.updated_at.isoformat(),
+        }
 
-    if job.status == "completed":
-        response["reviews_included"] = job.reviews_included
+        if job.status == "completed":
+            response["reviews_included"] = job.reviews_included
 
-    if job.status == "failed":
-        response["error"] = job.error
+        if job.status == "failed":
+            response["error"] = job.error
 
-    return response
+        return response
+
+    except SQLAlchemyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal error: {str(e)}",
+        )
 
 
 @router.websocket("/ws/index_job/{job_id}")
@@ -171,28 +203,26 @@ async def websocket_endpoint(
     job_id: int,
 ):
     await websocket.accept()
-    print(f"WebSocket connection established for job {job_id}")
     try:
-        print("WebSocket connection established")
-        # Create a new session for this websocket connection
+        logger.debug(f"WebSocket connection established for job {job_id}")
         async with AsyncSessionLocal() as db:
             last_status = None
 
-            # Check status every 2 seconds until job completes or fails
             while True:
                 db.expire_all()
-                job = await get_job_status(db, job_id)
+                job = await get_index_job(db, job_id)
                 if job is None:
-                    print(f"Job {job_id} not found")
+                    logger.error(f"Job {job_id} not found")
                     await websocket.send_json({"error": "Job not found"})
                     await websocket.close()
                     break
-                print(f"Checking job {job_id}, status: {job.status}")
+                logger.debug(f"Checking job {job_id}, status: {job.status}")
                 current_status = job.status
 
-                # Only send updates when the status changes
                 if current_status != last_status:
-                    print(f"Status changed from {last_status} to {current_status}")
+                    logger.debug(
+                        f"Status changed from {last_status} to {current_status}"
+                    )
                     response = {
                         "job_id": job.id,
                         "status": job.status,
@@ -202,13 +232,10 @@ async def websocket_endpoint(
                         response["reviews_included"] = job.reviews_included
                     if job.status == "failed":
                         response["error"] = job.error
-                    print("line 205")
                     await websocket.send_json(response)
                     last_status = current_status
-                    print("line 208")
-                # If the job is completed or failed, close the WebSocket
                 if job.status in ["completed", "failed"]:
-                    print(f"WebSocket connection closed for job {job_id}")
+                    logger.debug(f"WebSocket connection closed for job {job_id}")
                     await websocket.close()
                     break
 
@@ -216,17 +243,21 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket for job {job_id} disconnected")
+    except SQLAlchemyError as e:
+        await websocket.send_json({"error": f"Database error: {str(e)}"})
     except Exception as e:
-        print(f"Error in WebSocket for job {job_id}: {str(e)}")
+        logger.error(f"Error in WebSocket for job {job_id}: {str(e)}")
         import traceback
 
         traceback.print_exc()
+        try:
+            await websocket.send_json({"error": "An unexpected error occurred"})
+        except:
+            pass
     finally:
-        print(f"WebSocket connection closed for job {job_id}")
-        # Cancel any pending tasks specific to this connection
-        # If you have any tasks that were created with asyncio.create_task()
+        logger.debug(f"WebSocket connection closed for job {job_id}")
         for task in asyncio.all_tasks():
-            if task is not asyncio.current_task() and task.getname().startswith(
+            if task is not asyncio.current_task() and task.get_name().startswith(
                 f"job{job_id}"
             ):
                 task.cancel()

@@ -15,10 +15,12 @@ import api from "../../../api/api";
 import { Industry } from "../../../types/types";
 interface CombineAndCleanReviewsFormProps {
     industries: Industry[];
+    onSuccess: () => void;
 }
 
 const CombineAndCleanReviewsForm: React.FC<CombineAndCleanReviewsFormProps> = ({
     industries,
+    onSuccess,
 }) => {
     const [industryId, setIndustryId] = useState<number | null>(null);
     const [reviewType, setReviewType] = useState<string>("");
@@ -49,16 +51,15 @@ const CombineAndCleanReviewsForm: React.FC<CombineAndCleanReviewsFormProps> = ({
         Array.from(files).forEach((file) => {
             formData.append("files", file);
         });
-        console.log();
 
         try {
             const response = await api.post("/reviews/combine_and_clean", formData);
+            onSuccess();
             notifications.show({
                 title: "成功",
                 message: response.data.message,
                 color: "green",
             });
-            // Reset form after successful submission
         } catch (error: any) {
             console.error("Form submission error:", error);
 

@@ -19,6 +19,7 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
+.history/
 
 # Virtual Environment
 venv/
@@ -39,7 +40,6 @@ node_modules/
 
 # testing
 /coverage
-
 # production
 /build
 
@@ -74,6 +74,7 @@ logs/
 # Database files
 *.sqlite3
 *.db
+data/
 
 # Environment variables
 .env.*

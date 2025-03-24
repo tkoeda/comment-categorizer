@@ -165,7 +165,8 @@ async def process_reviews_in_batches_async(
     max_concurrent_batches=20,
     max_attempts=3,
 ):
-    industry_categories = industry.categories
+    industry_categories = [category.name for category in industry.categories]
+    print(industry_categories)
     batches = [
         new_reviews[i : i + reviews_per_batch]
         for i in range(0, len(new_reviews), reviews_per_batch)
