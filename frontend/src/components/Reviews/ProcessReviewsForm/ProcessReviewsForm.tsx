@@ -128,13 +128,41 @@ const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({
                 autoClose: false,
             });
         } catch (error: any) {
-            console.log(error);
-            notifications.show({
-                title: "エラー",
-                message: error.message,
-                color: "red",
-                icon: <IconAlertCircle />,
-            });
+            console.error("Request error:", error);
+
+            // Handle the case where error.response.data is a Blob
+            if (error.response && error.response.data instanceof Blob) {
+                // Read the blob as text and parse it
+                const blobText = await error.response.data.text();
+                try {
+                    const errorJson = JSON.parse(blobText);
+                    notifications.show({
+                        title: "エラー",
+                        message: errorJson.detail || "Unknown error occurred",
+                        color: "red",
+                        icon: <IconAlertCircle />,
+                    });
+                } catch {
+                    // Fallback if JSON parsing fails
+                    notifications.show({
+                        title: "エラー",
+                        message: "An error occurred processing your request",
+                        color: "red",
+                        icon: <IconAlertCircle />,
+                    });
+                }
+            } else {
+                // Handle normal error objects
+                notifications.show({
+                    title: "エラー",
+                    message:
+                        error.response?.data?.detail ||
+                        error.message ||
+                        "An error occurred",
+                    color: "red",
+                    icon: <IconAlertCircle />,
+                });
+            }
         } finally {
             resetForm();
             setIsSubmitting(false);

@@ -37,22 +37,14 @@ function SettingsPage() {
                     icon: <IconX size={16} />,
                 });
             }
-        } catch (error: unknown) {
-            if (error instanceof Error) {
-                notifications.show({
-                    title: "エラー",
-                    message: error.message,
-                    color: "red",
-                    icon: <IconX size={16} />,
-                });
-            } else {
-                notifications.show({
-                    title: "エラー",
-                    message: "An unexpected error occurred.",
-                    color: "red",
-                    icon: <IconX size={16} />,
-                });
-            }
+        } catch (error: any) {
+            console.log(error);
+            notifications.show({
+                title: "エラー",
+                message: error.response.data.detail || "Failed to update API key.",
+                color: "red",
+                icon: <IconX size={16} />,
+            });
         } finally {
             setApiKey("");
         }
@@ -62,37 +54,22 @@ function SettingsPage() {
     const handleDeleteApiKey = async () => {
         try {
             const response = await api.delete("users/me/openai-api-key");
-            if (response.status === 204) {
+            if (response.status === 200) {
                 notifications.show({
                     title: "Success",
                     message: "API key removed successfully.",
                     color: "green",
                     icon: <IconCheck size={16} />,
                 });
-            } else {
-                notifications.show({
-                    title: "エラー",
-                    message: response.data.detail || "Failed to remove API key.",
-                    color: "red",
-                    icon: <IconX size={16} />,
-                });
             }
-        } catch (error: unknown) {
-            if (error instanceof Error) {
-                notifications.show({
-                    title: "エラー",
-                    message: error.message,
-                    color: "red",
-                    icon: <IconX size={16} />,
-                });
-            } else {
-                notifications.show({
-                    title: "エラー",
-                    message: "An unexpected error occurred.",
-                    color: "red",
-                    icon: <IconX size={16} />,
-                });
-            }
+        } catch (error: any) {
+            notifications.show({
+                title: "エラー",
+                message:
+                    error.response.data.detail || "An unexpected error occurred.",
+                color: "red",
+                icon: <IconX size={16} />,
+            });
         }
     };
 
@@ -114,30 +91,15 @@ function SettingsPage() {
                     icon: <IconCheck size={16} />,
                 });
                 logout();
-            } else {
-                notifications.show({
-                    title: "エラー",
-                    message: response.data.detail || "Failed to delete account.",
-                    color: "red",
-                    icon: <IconX size={16} />,
-                });
             }
-        } catch (error: unknown) {
-            if (error instanceof Error) {
-                notifications.show({
-                    title: "エラー",
-                    message: error.message,
-                    color: "red",
-                    icon: <IconX size={16} />,
-                });
-            } else {
-                notifications.show({
-                    title: "エラー",
-                    message: "An unexpected error occurred.",
-                    color: "red",
-                    icon: <IconX size={16} />,
-                });
-            }
+        } catch (error: any) {
+            notifications.show({
+                title: "エラー",
+                message:
+                    error.response.data.detail || "An unexpected error occurred.",
+                color: "red",
+                icon: <IconX size={16} />,
+            });
         }
     };
 

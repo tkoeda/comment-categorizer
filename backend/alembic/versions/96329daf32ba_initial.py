@@ -1,8 +1,8 @@
 """initial
 
-Revision ID: dd805797852c
+Revision ID: 96329daf32ba
 Revises: 
-Create Date: 2025-03-18 04:31:56.934413
+Create Date: 2025-03-24 02:38:54.351233
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'dd805797852c'
+revision: str = '96329daf32ba'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -58,6 +58,31 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_categories_id'), 'categories', ['id'], unique=False)
     op.create_index(op.f('ix_categories_name'), 'categories', ['name'], unique=False)
+    op.create_table('index_jobs',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('industry_id', sa.Integer(), nullable=False),
+    sa.Column('status', sa.String(), nullable=False),
+    sa.Column('error', sa.String(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('reviews_included', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['industry_id'], ['industries.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('industry_indexes',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('industry_id', sa.Integer(), nullable=False),
+    sa.Column('index_path', sa.String(), nullable=False),
+    sa.Column('cached_data_path', sa.String(), nullable=False),
+    sa.Column('embeddings_model', sa.String(), nullable=False),
+    sa.Column('reviews_included', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['industry_id'], ['industries.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_industry_indexes_id'), 'industry_indexes', ['id'], unique=False)
+    op.create_index(op.f('ix_industry_indexes_industry_id'), 'industry_indexes', ['industry_id'], unique=True)
     op.create_table('reviews',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('display_name', sa.String(), nullable=False),
@@ -94,6 +119,10 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_reviews_id'), table_name='reviews')
     op.drop_index(op.f('ix_reviews_display_name'), table_name='reviews')
     op.drop_table('reviews')
+    op.drop_index(op.f('ix_industry_indexes_industry_id'), table_name='industry_indexes')
+    op.drop_index(op.f('ix_industry_indexes_id'), table_name='industry_indexes')
+    op.drop_table('industry_indexes')
+    op.drop_table('index_jobs')
     op.drop_index(op.f('ix_categories_name'), table_name='categories')
     op.drop_index(op.f('ix_categories_id'), table_name='categories')
     op.drop_table('categories')

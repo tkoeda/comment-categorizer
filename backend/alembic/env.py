@@ -2,6 +2,7 @@ import asyncio
 from logging.config import fileConfig
 
 import app.auth.models
+import app.models.index
 import app.models.industries
 import app.models.reviews
 import app.models.users

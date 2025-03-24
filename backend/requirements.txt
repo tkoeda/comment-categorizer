@@ -26,3 +26,4 @@ torch==2.2.2
 --extra-index-url https://download.pytorch.org/whl/cpu
 python-jose==3.4.0
 cryptography==44.0.2
+transformers==4.49.0

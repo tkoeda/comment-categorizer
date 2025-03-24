@@ -71,7 +71,6 @@ function AuthForm({ route, method }: AuthFormProps) {
         } catch (error: any) {
             if (error.response?.data) {
                 const errors = error.response.data;
-
                 if (errors.detail) {
                     setGlobalError(errors.detail);
                     return;

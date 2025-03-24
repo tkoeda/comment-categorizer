@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.core.database import Base
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -59,3 +59,4 @@ class IndexJob(Base):
         onupdate=datetime.now(timezone.utc),
     )
     reviews_included = mapped_column(Integer, nullable=True)
+    progress = mapped_column(Float, default=0)
