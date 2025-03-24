@@ -2,9 +2,10 @@ import asyncio
 import json
 import logging
 
-from app.utils.calc_utils import time_to_seconds
-from app.utils.console_utils import display_rate_limit_progress
-from app.utils.prompts_utils import append_prompt_to_json
+from app.utils.common.calc_utils import time_to_seconds
+from app.utils.common.console_utils import display_rate_limit_progress
+from app.utils.common.prompts_utils import append_prompt_to_json
+from app.utils.routers.users import verify_openai_api_key
 from openai import AsyncOpenAI
 from rich.console import Console
 from tenacity import (
@@ -42,6 +43,9 @@ class OpenAILLM:
           - categories: list of allowed categories
         Returns a JSON object with a "results" key containing a list of classification objects.
         """
+        is_valid, error_msg = await verify_openai_api_key(self.client.api_key)
+        if not is_valid:
+            return self._default_response(len(reviews))
         prompt = self._build_prompt(reviews, similar_reviews_list, categories)
         # append_prompt_to_json(prompt, output_file="prompts.json")
         chat_params = {

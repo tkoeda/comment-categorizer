@@ -1,3 +1,4 @@
+import os
 import time
 
 from app.constants import GPT_PRICING, MODEL
@@ -5,9 +6,9 @@ from app.models.industries import Industry
 from app.rag_pipeline.indexer import DummyRetriever
 from app.rag_pipeline.openai_llm import OpenAILLM
 from app.rag_pipeline.process_reviews import process_reviews_in_batches_async
-from app.utils.calc_utils import calculate_average_time
-from app.utils.console_utils import print_status_tracker
-from app.utils.io_utils import save_results_to_excel
+from app.utils.common.calc_utils import calculate_average_time
+from app.utils.common.console_utils import print_status_tracker
+from app.utils.common.io_utils import save_results_to_excel
 from rich.console import Console
 from rich.table import Table
 
@@ -175,3 +176,28 @@ async def classify_and_merge(
     section_times["saving_results"] = time.time() - start_save
 
     return output_excel_path
+
+
+def clean_up_files(temp_files, combined_file, cleaned_file):
+    """Helper function to clean up files when an error occurs"""
+    # Clean up temporary files
+    for file_path in temp_files:
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+
+    # Delete combined file if it was created
+    if combined_file and os.path.exists(combined_file):
+        try:
+            os.remove(combined_file)
+        except OSError:
+            pass
+
+    # Delete cleaned file if it was created
+    if cleaned_file and os.path.exists(cleaned_file):
+        try:
+            os.remove(cleaned_file)
+        except OSError:
+            pass

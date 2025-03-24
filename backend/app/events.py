@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import shutil
@@ -10,7 +11,7 @@ from sqlalchemy import event
 logger = logging.getLogger(__name__)
 
 
-def register_event_listeners():
+def register_event_listeners(app=None):
     @event.listens_for(Review, "after_delete")
     def delete_review_file(mapper, connection, target):
         """Remove the file associated with a deleted review."""

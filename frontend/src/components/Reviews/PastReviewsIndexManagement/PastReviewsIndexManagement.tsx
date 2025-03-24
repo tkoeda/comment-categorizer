@@ -30,10 +30,12 @@ interface IndexJobStatus {
 
 interface PastReviewsIndexManagementProps {
     industries: Industry[];
+    refreshFlag: boolean;
 }
 
 const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
     industries,
+    refreshFlag,
 }) => {
     const [industryId, setIndustryId] = useState<number | null>(null);
     const [fileLists, setFileLists] = useState<ReviewLists | null>(null);
@@ -77,7 +79,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
         };
 
         fetchData();
-    }, [industryId]);
+    }, [industryId, refreshFlag]);
 
     // Log when job status updates (for debugging)
     useEffect(() => {

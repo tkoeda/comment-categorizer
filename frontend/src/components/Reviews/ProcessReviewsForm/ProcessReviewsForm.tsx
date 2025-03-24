@@ -18,9 +18,15 @@ import { Industry, ReviewLists } from "../../../types/types";
 import { loadFileLists } from "../../../utils/utils";
 interface ProcessReviewsFormProps {
     industries: Industry[];
+    onSuccess: () => void;
+    refreshFlag: boolean;
 }
 
-const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({ industries }) => {
+const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({
+    industries,
+    onSuccess,
+    refreshFlag,
+}) => {
     const [industryId, setIndustryId] = useState<number | null>(null);
     const [fileLists, setFileLists] = useState<ReviewLists | null>(null);
     const [selectedNewCleanedReviewId, setSelectedNewCleanedReviewId] = useState<
@@ -66,10 +72,9 @@ const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({ industries }) =
         };
 
         fetchData();
-    }, [industryId]);
+    }, [industryId, refreshFlag]);
 
     const resetForm = () => {
-        setIndustryId(null);
         setSelectedNewCleanedReviewId(null);
     };
 
@@ -89,21 +94,31 @@ const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({ industries }) =
                 responseType: "blob",
                 headers: { "Content-Type": "application/json" },
             });
-            console.log(response);
+            console.log("response headers:", response.headers);
+            onSuccess();
             const blob = new Blob([response.data], {
                 type: response.headers["content-type"],
             });
+            let filename = "downloaded-file.xlsx";
+            const encodedFilename = response.headers["x-filename-base64"];
+
+            if (encodedFilename) {
+                try {
+                    filename = atob(encodedFilename);
+                    filename = new TextDecoder("utf-8").decode(
+                        new Uint8Array([...filename].map((c) => c.charCodeAt(0)))
+                    );
+                } catch (e) {
+                    console.error("Error decoding filename:", e);
+                }
+            }
             const url = window.URL.createObjectURL(blob);
             notifications.show({
                 title: "成功",
                 message: (
                     <>
                         <Text>処理が正常に完了しました！</Text>
-                        <Anchor
-                            href={url}
-                            download="categorized_reviews.xlsx"
-                            mt="xs"
-                        >
+                        <Anchor href={url} download={filename} mt="xs">
                             処理済みファイルをダウンロード
                         </Anchor>
                     </>

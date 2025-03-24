@@ -20,9 +20,15 @@ import { Industry, ReviewItem, ReviewLists } from "../../types/types";
 import { deleteFile, loadFileLists } from "../../utils/utils";
 interface DeleteFileFormProps {
     industries: Industry[];
+    onSuccess: () => void;
+    refreshFlag: boolean;
 }
 
-const DeleteFileForm: React.FC<DeleteFileFormProps> = ({ industries }) => {
+const DeleteFileForm: React.FC<DeleteFileFormProps> = ({
+    industries,
+    onSuccess,
+    refreshFlag,
+}) => {
     const [industryId, setIndustryId] = useState<number | null>(null);
     const [fileLists, setFileLists] = useState<ReviewLists | null>(null);
     const [deleteModalOpen, setDeleteModalOpen] = useState<boolean>(false);
@@ -40,7 +46,7 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({ industries }) => {
             }
         };
         fetchFileLists();
-    }, [industryId]);
+    }, [industryId, refreshFlag]);
 
     const getFilesToDisplay = (): ReviewItem[] => {
         if (!fileLists) return [];
@@ -61,17 +67,12 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({ industries }) => {
 
         try {
             const data = await deleteFile(fileToDelete.id);
-
+            onSuccess();
             notifications.show({
                 title: "成功",
                 message: data.message,
                 color: "green",
             });
-
-            if (industryId) {
-                const updatedData = await loadFileLists(industryId);
-                setFileLists(updatedData);
-            }
         } catch (error: any) {
             notifications.show({
                 title: "エラー",

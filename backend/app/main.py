@@ -1,20 +1,35 @@
+import json
 import logging
+import logging.config
+import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
 
 import uvicorn
 from app.core.config import Settings
-from app.core.database import Base, async_engine
+from app.core.database import AsyncSessionLocal, Base, async_engine
 from app.core.routes import router as api_router
 from app.events import register_event_listeners
+from app.models.index import IndexJob
+from app.utils.routers.index import update_job_status
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from rich.console import Console
+from sqlalchemy import select
 
-logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 console = Console()
+
+
+def configure_logging_from_json():
+    os.makedirs("logs", exist_ok=True)
+    config_path = os.path.join(
+        os.path.dirname(__file__), "core", "logging_config.json"
+    )
+    with open(config_path, "r") as f:
+        config = json.load(f)
+
+    logging.config.dictConfig(config)
 
 
 @asynccontextmanager
@@ -23,10 +38,26 @@ async def lifespan(app: FastAPI):
     Code before 'yield' runs on application startup.
     Code after 'yield' runs on application shutdown.
     """
+    configure_logging_from_json()
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    register_event_listeners()
+    async with AsyncSessionLocal() as db:
+        stmt = select(IndexJob).filter(IndexJob.status == "processing")
+        result = await db.execute(stmt)
+        orphaned_jobs = result.scalars().all()
+
+        for job in orphaned_jobs:
+            await update_job_status(
+                db, job.id, "failed", error="Job was interrupted by server restart"
+            )
+
+        if orphaned_jobs:
+            logger.info(
+                f"Reset {len(orphaned_jobs)} orphaned jobs to 'failed' state"
+            )
+
+    register_event_listeners(app)
     yield
 
     print("App shutting down!")

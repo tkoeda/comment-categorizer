@@ -8,21 +8,11 @@
         "default": [
             [
                 {
-                    "name": "frontend",
+                    "name": "docker",
                     "autoExecuteCommands": true,
                     "color": "terminal.ansiGreen",
                     "commands": [
-                        "cd frontend",
-                        "npm run dev"
-                    ]
-                },
-                {
-                    "name": "backend",
-                    "autoExecuteCommands": true,
-                    "color": "terminal.ansiGreen",
-                    "commands": [
-                        "cd backend",
-                        "uvicorn app.main:app --reload"
+                        "docker compose up -d"
                     ]
                 }
             ]

@@ -4,6 +4,7 @@ from app.auth.dependencies import get_current_user
 from app.auth.security import blacklist_token, oauth2_scheme
 from app.core.database import get_db
 from app.models.users import User
+from app.utils.routers.users import verify_openai_api_key
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,16 +51,28 @@ async def update_openai_api_key(
     The API key is encrypted before being stored in the database.
     """
     try:
-        # Update the API key
-        current_user.openai_api_key = api_key_update.api_key
-        db.add(current_user)
-        await db.commit()
-        await db.refresh(current_user)
+        if api_key_update.api_key:
+            is_valid, error_msg = await verify_openai_api_key(api_key_update.api_key)
+            if not is_valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid OpenAI API key: {error_msg}",
+                )
+            # Update the API key
+            current_user.openai_api_key = api_key_update.api_key
+            db.add(current_user)
+            await db.commit()
+            await db.refresh(current_user)
 
-        return {
-            "message": "OpenAI API key updated successfully",
-            "has_api_key": current_user.encrypted_openai_api_key is not None,
-        }
+            return {
+                "message": "OpenAI API key updated successfully",
+                "has_api_key": current_user.encrypted_openai_api_key is not None,
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key cannot be empty",
+            )
     except ValueError as e:
         # Handle encryption errors (like missing FERNET_KEY)
         raise HTTPException(

@@ -4,7 +4,7 @@ from typing import Annotated, Union
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.utils.users import authenticate_user
+from app.utils.routers.users import authenticate_user
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
