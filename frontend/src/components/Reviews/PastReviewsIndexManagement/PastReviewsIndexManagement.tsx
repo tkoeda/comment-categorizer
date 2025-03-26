@@ -184,7 +184,6 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
     const connectWebSocket = (id: string) => {
         // Ensure protocol matches (ws:// for http, wss:// for https)
         const baseUrl = myBaseUrl;
-        const backendUrl = new URL(import.meta.env.VITE_API_URL_LOCAL);
 
         const wsProtocol = baseUrl.startsWith("https") ? "wss:" : "ws:";
         const wsHost = new URL(baseUrl).host;
