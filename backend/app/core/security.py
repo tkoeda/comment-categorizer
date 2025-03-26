@@ -7,8 +7,8 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .schemas import TokenData
-from .utils import token_blacklist_create, token_blacklist_exists
+from ..schemas.auth import TokenData
+from ..utils.routers.auth import token_blacklist_create, token_blacklist_exists
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM

@@ -6,7 +6,7 @@ GPT_PRICING = {
     "gpt-4o-mini": {"prompt": 0.15, "completion": 0.60},
 }
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 
 

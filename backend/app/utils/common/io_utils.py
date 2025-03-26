@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 import pandas as pd
-from app.constants import REVIEW_FOLDER_PATHS
+from app.common.constants import REVIEW_FOLDER_PATHS
 
 
 def get_unique_filename(

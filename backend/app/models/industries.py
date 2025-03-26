@@ -1,9 +1,7 @@
-import uuid
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List
 
 from app.core.database import Base
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

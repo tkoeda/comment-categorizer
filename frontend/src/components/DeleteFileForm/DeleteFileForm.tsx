@@ -16,8 +16,9 @@ import { notifications } from "@mantine/notifications";
 import { IconDownload, IconTrash } from "@tabler/icons-react";
 import React, { useEffect, useState } from "react";
 import api from "../../api/api";
-import { Industry, ReviewItem, ReviewLists } from "../../types/types";
+import { Industry, ReviewItem } from "../../types/types";
 import { deleteFile, loadFileLists } from "../../utils/utils";
+
 interface DeleteFileFormProps {
     industries: Industry[];
     onSuccess: () => void;
@@ -30,35 +31,37 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({
     refreshFlag,
 }) => {
     const [industryId, setIndustryId] = useState<number | null>(null);
-    const [fileLists, setFileLists] = useState<ReviewLists | null>(null);
+    const [fileLists, setFileLists] = useState<ReviewItem[] | null>(null);
     const [deleteModalOpen, setDeleteModalOpen] = useState<boolean>(false);
     const [fileToDelete, setFileToDelete] = useState<ReviewItem | null>(null);
     const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+    // Fetch reviews whenever industry or refreshFlag changes
     useEffect(() => {
         const fetchFileLists = async () => {
             if (industryId) {
                 try {
+                    // loadFileLists returns an array of ReviewItem
                     const data = await loadFileLists(industryId);
                     setFileLists(data);
                 } catch (error) {
                     console.error("ファイルリスト読み込みエラー:", error);
                 }
+            } else {
+                // If no industry selected, clear the list
+                setFileLists(null);
             }
         };
         fetchFileLists();
     }, [industryId, refreshFlag]);
 
-    const getFilesToDisplay = (): ReviewItem[] => {
-        if (!fileLists) return [];
-
-        return fileLists["final"] || [];
-    };
-
+    // Open confirmation modal
     const openDeleteModal = (file: ReviewItem) => {
         setFileToDelete(file);
         setDeleteModalOpen(true);
     };
 
+    // Perform deletion
     const handleDelete = async () => {
         if (!fileToDelete) return;
 
@@ -67,7 +70,7 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({
 
         try {
             const data = await deleteFile(fileToDelete.id);
-            onSuccess();
+            onSuccess(); // trigger parent refresh if needed
             notifications.show({
                 title: "成功",
                 message: data.message,
@@ -84,6 +87,7 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({
         }
     };
 
+    // Handle file download
     const handleDownload = async (reviewId: number, displayName: string) => {
         try {
             const notificationId = notifications.show({
@@ -128,6 +132,12 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({
         }
     };
 
+    // Optionally filter out only final reviews or cleaned
+    const finalReviews =
+        fileLists?.filter(
+            (file) => file.stage === "final" || file.stage === "cleaned"
+        ) || [];
+
     return (
         <Box>
             <Title order={2} mb="md">
@@ -148,44 +158,38 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({
                     searchable
                 />
 
-                {}
-                <input type="hidden" value="final" onChange={() => {}} />
-
                 <Box mt="md">
                     <Title order={4} mb="sm">
                         最終レビューファイル:
                     </Title>
-
-                    {getFilesToDisplay().length > 0 ? (
-                        <Table
-                            verticalSpacing="md"
-                            stickyHeader
-                            stickyHeaderOffset={60}
-                        >
-                            <Table.Thead>
-                                <Table.Tr>
-                                    <Table.Th ta="center">Review Name</Table.Th>
-                                    <Table.Th ta="center">Actions</Table.Th>
-                                </Table.Tr>
-                            </Table.Thead>
-
-                            <Table.Tbody>
-                                {getFilesToDisplay().map((review) => (
-                                    <Table.Tr key={review.id}>
-                                        <Table.Td>
+                    {finalReviews.length > 0 ? (
+                        <Table verticalSpacing="md">
+                            <thead>
+                                <tr>
+                                    <th>Review Name</th>
+                                    <th>Stage</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {finalReviews.map((review) => (
+                                    <tr key={review.id}>
+                                        <td>
                                             <Anchor
                                                 onClick={() =>
                                                     handleDownload(
                                                         review.id,
-                                                        review.display_name
+                                                        review.display_name ??
+                                                            "untitled"
                                                     )
                                                 }
                                                 style={{ cursor: "pointer" }}
                                             >
-                                                {review.display_name}
+                                                {review.display_name || "(No Name)"}
                                             </Anchor>
-                                        </Table.Td>
-                                        <Table.Td>
+                                        </td>
+                                        <td>{review.stage}</td>
+                                        <td>
                                             <ActionIcon
                                                 color="red"
                                                 onClick={() =>
@@ -194,10 +198,10 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({
                                             >
                                                 <IconTrash size={18} />
                                             </ActionIcon>
-                                        </Table.Td>
-                                    </Table.Tr>
+                                        </td>
+                                    </tr>
                                 ))}
-                            </Table.Tbody>
+                            </tbody>
                         </Table>
                     ) : (
                         <Text>利用可能なファイルがありません。</Text>
@@ -218,7 +222,7 @@ const DeleteFileForm: React.FC<DeleteFileFormProps> = ({
                     これにより、処理チェーン内のすべての親ファイルも削除されます。
                 </Text>
                 <Text mb="md">This action cannot be undone.</Text>
-                <Group justify="flex-end">
+                <Group justify="right">
                     <Button
                         variant="outline"
                         onClick={() => setDeleteModalOpen(false)}

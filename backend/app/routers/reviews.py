@@ -1,13 +1,14 @@
 import base64
+import logging
 import os
 import time
 
-from app.auth.dependencies import get_current_user
-from app.constants import (
+from app.common.constants import (
     DATA_DIR,
     REVIEW_FOLDER_PATHS,
 )
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.crud.industries import get_industry
 from app.crud.reviews import (
     create_review,
@@ -37,6 +38,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+logger = logging.getLogger(__name__)
 REVIEWS_DIR = os.path.join(DATA_DIR, "reviews")
 NEW_RAW_DIR = os.path.join(REVIEWS_DIR, "new", "raw")
 NEW_COMBINED_DIR = os.path.join(REVIEWS_DIR, "new", "combined")
@@ -56,6 +58,7 @@ router = APIRouter()
 async def list_files(
     industry_id: int = None,
     review_type: str = None,
+    stage: str = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -63,33 +66,31 @@ async def list_files(
     List available files for new reviews and past reviews.
     Returns JSON lists for raw, combined, cleaned, and past reviews.
     """
-    response = {
-        "new": {"cleaned": [], "combined": []},
-        "past": {"cleaned": [], "combined": []},
-        "final": [],
-    }
     try:
         if industry_id:
-            industry = await get_industry(db, industry_id)
+            industry = await get_industry(db, industry_id, current_user)
             if not industry:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Industry not found",
                 )
-
-            if review_type and review_type not in ["new", "past"]:
+            valid_types = ["new", "past", "final"]
+            if review_type and review_type not in valid_types:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid review type",
+                    detail="無効なレビュータイプです",
                 )
 
-            stmt_reviews = select(Review).filter(
-                Review.industry_id == industry_id, Review.user_id == current_user.id
-            )
+            stmt = select(Review).filter(Review.user_id == current_user.id)
+            if industry_id:
+                stmt = stmt.filter(Review.industry_id == industry_id)
             if review_type:
-                stmt_reviews = stmt_reviews.filter(Review.review_type == review_type)
-            reviews_result = await db.execute(stmt_reviews)
-            reviews = reviews_result.scalars().all()
+                stmt = stmt.filter(Review.review_type == review_type)
+            if stage:
+                stmt = stmt.filter(Review.stage == stage)
+            result = await db.execute(stmt)
+            reviews = result.scalars().all()
+            file_list = []
             for review in reviews:
                 file_item = {
                     "id": review.id,
@@ -98,28 +99,21 @@ async def list_files(
                     "stage": review.stage,
                     "review_type": review.review_type,
                     "created_at": review.created_at.isoformat(),
+                    "parent_id": review.parent_id,
                 }
 
-                review_type = review.review_type
-                if review_type == "final":
-                    response["final"].append(file_item)
-                else:
-                    stage = review.stage
-
-                    if stage not in response[review_type]:
-                        response[review_type][stage] = []
-
-                    response[review_type][stage].append(file_item)
-        return response
+                file_list.append(file_item)
+                print(file_item)
+        return {"reviews": file_list}
     except SQLAlchemyError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}",
+            detail=f"データベースエラー: {str(e)}",
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}",
+            detail=f"予期しないエラーが発生しました: {str(e)}",
         )
 
 
@@ -145,14 +139,15 @@ async def combine_and_clean_endpoint(
     if review_type not in ["new", "past"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Type must be 'new' or 'past'.",
+            detail="タイプは 'new' または 'past' のいずれかである必要があります。",
         )
 
-    industry = await get_industry(db, industry_id)
+    industry = await get_industry(db, industry_id, current_user)
 
     if not industry:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="業界が見つかりませんでした。",
         )
 
     if not files:
@@ -215,7 +210,7 @@ async def combine_and_clean_endpoint(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to combine Excel files: {str(e)}",
+                detail=f"Excelファイルの結合に失敗しました: {str(e)}",
             )
 
         if not os.path.exists(combined_file):
@@ -237,12 +232,13 @@ async def combine_and_clean_endpoint(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to clean Excel file: {str(e)}",
+                detail=f"Excelファイルの結合に失敗しました: {str(e)}",
             )
 
         if not os.path.exists(cleaned_file):
             raise HTTPException(
-                status_code=500, detail="Cleaning failed, output file not found."
+                status_code=500,
+                detail="クリーニングに失敗しました。出力ファイルが見つかりません。",
             )
 
         try:
@@ -276,7 +272,7 @@ async def combine_and_clean_endpoint(
                     os.remove(src_path)
 
         return CombineAndCleanResponse(
-            message="Reviews combined and cleaned successfully",
+            message="レビューの結合とクリーニングが完了しました。",
             combined_file=combined_file,
             cleaned_file=cleaned_file,
             combined_review_id=combined_review.id,
@@ -305,14 +301,15 @@ async def process_reviews_saved_endpoint(
     if not current_user.openai_api_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No OpenAI API key found. Please add your API key in your account settings.",
+            detail="OpenAI APIキーが見つかりません。アカウント設定にAPIキーを追加してください。",
         )
 
-    industry = await get_industry(db, request.industry_id)
+    industry = await get_industry(db, request.industry_id, current_user)
 
     if not industry:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="業界が見つかりませんでした。",
         )
     new_cleaned_review = await get_review(
         db, id=request.new_cleaned_id, user_id=current_user.id
@@ -320,26 +317,26 @@ async def process_reviews_saved_endpoint(
     if not new_cleaned_review:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Selected new cleaned file not found.",
+            detail="選択された新しいクリーニング済みファイルが見つかりません。",
         )
 
     if not os.path.exists(new_cleaned_review.file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="New cleaned file not found on disk.",
+            detail="新しいクリーニング済みファイルがディスク上に存在しません。",
         )
 
     new_combined_review = new_cleaned_review.parent
     if not new_combined_review:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Combined review file not found.",
+            detail="結合されたコメントファイルが見つかりません。",
         )
 
     if not os.path.exists(new_combined_review.file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="New combined file not found on disk.",
+            detail="新しい結合ファイルがディスク上に存在しません。",
         )
     try:
         new_reviews = fetch_new_reviews_from_excel(
@@ -361,7 +358,7 @@ async def process_reviews_saved_endpoint(
                     print(f"Error initializing retriever: {str(e)}")
                     retriever = DummyRetriever()
             else:
-                print("No index found for industry. Skipping FAISS retrieval.")
+                logger.info("No index found for industry. Skipping FAISS retrieval.")
                 retriever = DummyRetriever()
 
         output_excel_path = await classify_and_merge(
@@ -444,7 +441,7 @@ async def delete_review(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}",
+            detail=f"予期しないエラーが発生しました: {str(e)}",
         )
 
 
@@ -481,5 +478,5 @@ async def download_file(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}",
+            detail=f"予期しないエラーが発生しました: {str(e)}",
         )

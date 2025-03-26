@@ -1,8 +1,8 @@
 from typing import Any
 
-from app.auth.dependencies import get_current_user
-from app.auth.security import blacklist_token, oauth2_scheme
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.core.security import blacklist_token, oauth2_scheme
 from app.crud.users import create_user
 from app.models.users import User
 from app.schemas.users import UserCreateModel

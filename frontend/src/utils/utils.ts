@@ -10,11 +10,16 @@ export const submitForm = async (endpoint: string, formData: FormData) => {
     return response.data;
 };
 
-export const loadFileLists = async (industryId: number, reviewType?: string) => {
+export const loadFileLists = async (
+    industryId: number,
+    reviewType?: string,
+    stage?: string
+) => {
     const response = await api.get("/reviews/list/", {
-        params: { industry_id: industryId, review_type: reviewType },
+        params: { industry_id: industryId, review_type: reviewType, stage: stage },
     });
-    return response.data;
+    console.log(response);
+    return response.data.reviews;
 };
 
 export const getIndustries = async () => {

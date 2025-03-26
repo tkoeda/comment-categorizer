@@ -3,8 +3,8 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from .models import TokenBlacklist
-from .schemas import TokenBlacklistCreate
+from ...models.auth import TokenBlacklist
+from ...schemas.auth import TokenBlacklistCreate
 
 
 async def token_blacklist_create(

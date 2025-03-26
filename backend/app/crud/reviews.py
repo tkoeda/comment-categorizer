@@ -1,9 +1,13 @@
+import logging
 from typing import Optional
 
 from app.models.reviews import Review
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
+
+logger = logging.getLogger(__name__)
 
 
 async def get_review(db: AsyncSession, id: int, user_id: int = None):
@@ -65,45 +69,71 @@ async def delete_review(db: AsyncSession, review_id: int):
 
 
 async def delete_review_cascade_up(
-    db: AsyncSession, id: int, user_id: int = None
+    db: AsyncSession, id: int, user_id: Optional[UUID] = None
 ) -> bool:
-    """Delete a review and cascade deletion upward to its ancestors."""
+    """
+    Delete a review and cascade deletion upward to its ancestors if they have no other children.
+
+    Args:
+        db: Database session
+        id: ID of the review to delete
+        user_id: Optional user ID for permission checking
+
+    Returns:
+        True if deletion was successful, False if review not found
+    """
     try:
-        review = await get_review(db, id=id, user_id=user_id)
-        if not review:
-            return False
+        # Start a nested transaction for safety
+        async with db.begin_nested():
+            # Get the review to delete
+            review = await get_review(db, id=id, user_id=user_id)
+            if not review:
+                return False
 
-        parent_id = review.parent_id
+            parent_id = review.parent_id
 
-        await db.delete(review)
-        await db.flush()
+            # Delete the target review
+            await db.delete(review)
+            await db.flush()
 
-        while parent_id is not None:
-            parent_stmt = select(Review).filter(Review.id == parent_id)
-            parent_result = await db.execute(parent_stmt)
-            parent = parent_result.scalar_one_or_none()
+            # Process parent chain
+            deleted_ids = [id]
+            while parent_id is not None:
+                # Check if parent exists and has no other children
+                children_stmt = select(Review).filter(
+                    Review.parent_id == parent_id, Review.id.notin_(deleted_ids)
+                )
+                remaining_children = (
+                    (await db.execute(children_stmt)).scalars().all()
+                )
 
-            if not parent:
-                break
+                if not remaining_children:
+                    # Get parent for deletion and to check next level
+                    parent = (
+                        await db.execute(
+                            select(Review).filter(Review.id == parent_id)
+                        )
+                    ).scalar_one_or_none()
 
-            next_parent_id = parent.parent_id
+                    if not parent:
+                        break
 
-            await db.refresh(parent)
-            children_stmt = select(Review).filter(Review.parent_id == parent_id)
-            children_result = await db.execute(children_stmt)
-            remaining_children = children_result.scalars().all()
+                    next_parent_id = parent.parent_id
 
-            if not remaining_children:
-                print("Deleting parent review")
-                await db.delete(parent)
-                await db.flush()
-                parent_id = next_parent_id
-            else:
-                print("Parent review has other children, stopping cascading")
-                break
+                    # Delete the parent
+                    await db.delete(parent)
+                    deleted_ids.append(parent_id)
+                    parent_id = next_parent_id
+                else:
+                    # Stop if parent has other children
+                    break
 
+        # Commit the transaction
         await db.commit()
         return True
-    except Exception:
+
+    except Exception as e:
         await db.rollback()
+        # Log the exception
+        logger.error(f"Error deleting review cascade: {str(e)}")
         raise

@@ -20,6 +20,7 @@ var/
 .installed.cfg
 *.egg
 .history/
+backend/alembic/versions/
 
 # Virtual Environment
 venv/

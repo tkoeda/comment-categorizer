@@ -14,7 +14,7 @@ import React, { useEffect, useState } from "react";
 
 import { IconAlertCircle, IconDownload, IconInfoCircle } from "@tabler/icons-react";
 import api from "../../../api/api";
-import { Industry, ReviewLists } from "../../../types/types";
+import { Industry, ReviewItem } from "../../../types/types";
 import { loadFileLists } from "../../../utils/utils";
 interface ProcessReviewsFormProps {
     industries: Industry[];
@@ -28,7 +28,7 @@ const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({
     refreshFlag,
 }) => {
     const [industryId, setIndustryId] = useState<number | null>(null);
-    const [fileLists, setFileLists] = useState<ReviewLists | null>(null);
+    const [fileLists, setFileLists] = useState<ReviewItem[] | null>(null);
     const [selectedNewCleanedReviewId, setSelectedNewCleanedReviewId] = useState<
         number | null
     >(null);
@@ -50,7 +50,11 @@ const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({
             if (industryId) {
                 setIsLoading(true);
                 try {
-                    const data: ReviewLists = await loadFileLists(industryId);
+                    const data: ReviewItem[] = await loadFileLists(
+                        industryId,
+                        "new",
+                        "cleaned"
+                    );
                     setFileLists(data);
                     try {
                         const indexResponse = await api.get(
@@ -180,7 +184,7 @@ const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({
     return (
         <form onSubmit={handleSubmit}>
             <Title order={2} mb="md">
-                ステップ3: 保存したレビューをChatGPTに投げる
+                保存したレビューをChatGPTに投げる
             </Title>
 
             <Stack gap="md">
@@ -242,7 +246,7 @@ const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({
                 <Select
                     label="クリーニング済みファイルを選択"
                     placeholder="クリーニング済みファイルを選択"
-                    data={fileLists?.new?.cleaned.map((file) => ({
+                    data={fileLists?.map((file) => ({
                         value: file.id.toString(),
                         label: file.display_name,
                     }))}
@@ -254,7 +258,7 @@ const ProcessReviewsForm: React.FC<ProcessReviewsFormProps> = ({
                     onChange={(value) =>
                         setSelectedNewCleanedReviewId(value ? Number(value) : null)
                     }
-                    disabled={fileLists?.new?.cleaned.length === 0 || isSubmitting}
+                    disabled={fileLists?.length === 0 || isSubmitting}
                     required
                     clearable
                 />

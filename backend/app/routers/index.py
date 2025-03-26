@@ -1,33 +1,37 @@
 import asyncio
 import logging
 import os
+import sys
 
-from app.auth.dependencies import get_current_user
-from app.constants import (
+from app.common.constants import (
     DATA_DIR,
 )
-from app.core.database import AsyncSessionLocal, get_db
+from app.common.job_registry import running_retrievers
+from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.crud.index import create_index_job, get_index, get_index_job
 from app.crud.industries import get_industry
 from app.crud.reviews import (
     get_review,
 )
+from app.models.index import IndexJob
 from app.models.users import User
 from app.schemas.index import (
     IndexStatusResponse,
     UpdatePastReviewsIndexRequest,
 )
 from app.utils.routers.index import (
+    get_active_index_job,
     process_index_job,
+    update_job_status,
 )
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
-    WebSocket,
-    WebSocketDisconnect,
     status,
 )
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,13 +64,13 @@ async def get_index_status(
     """
 
     try:
-        industry = await get_industry(db, industry_id)
+        industry = await get_industry(db, industry_id, current_user)
         if not industry:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found"
             )
 
-        index = await get_index(db, industry_id)
+        index = await get_index(db, industry_id, user=current_user)
 
         if not index:
             return {
@@ -85,7 +89,7 @@ async def get_index_status(
     except SQLAlchemyError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}",
+            detail=f"データベースエラー: {str(e)}",
         )
     except Exception as e:
         raise HTTPException(
@@ -109,6 +113,8 @@ async def update_past_reviews_index_endpoint(
         mode: "add" to add to existing index, "replace" to create a new index
     """
 
+    job_id = None
+
     try:
         if request.mode not in ["add", "replace"]:
             raise HTTPException(
@@ -116,7 +122,7 @@ async def update_past_reviews_index_endpoint(
                 detail="Mode must be 'add' or 'replace'",
             )
 
-        industry = await get_industry(db, request.industry_id)
+        industry = await get_industry(db, request.industry_id, current_user)
         if not industry:
             raise HTTPException(status_code=404, detail="Industry not found")
 
@@ -129,7 +135,14 @@ async def update_past_reviews_index_endpoint(
                 status_code=400,
                 detail="Selected review must be a cleaned past review",
             )
-        job_id = await create_index_job(db, request.industry_id)
+        existing_jobs = await get_active_index_job(db)
+        if existing_jobs:
+            raise HTTPException(
+                status_code=400,
+                detail="An index job is already in progress. Please wait for it to complete before starting a new one.",
+            )
+
+        job_id = await create_index_job(db, request.industry_id, current_user)
 
         asyncio.create_task(
             process_index_job(
@@ -137,6 +150,7 @@ async def update_past_reviews_index_endpoint(
                 industry_id=request.industry_id,
                 past_cleaned_id=request.past_cleaned_id,
                 mode=request.mode,
+                user=current_user,
             ),
             name=f"job{job_id}",
         )
@@ -148,18 +162,30 @@ async def update_past_reviews_index_endpoint(
     except SQLAlchemyError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}",
+            detail=f"データベースエラー: {str(e)}",
         )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error: {str(e)}",
         )
+    finally:
+        if job_id is not None and sys.exc_info()[0] is not None:
+            try:
+                await update_job_status(
+                    db,
+                    job_id,
+                    "failed",
+                    user=current_user,
+                    error=f"{str(sys.exc_info()[1])}",
+                )
+            except Exception as status_error:
+                logger.error(f"Failed to update job status: {str(status_error)}")
 
 
 @router.get("/index_job_status/{job_id}")
 async def check_index_job_status(
-    job_id: str,
+    job_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -188,7 +214,7 @@ async def check_index_job_status(
     except SQLAlchemyError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}",
+            detail=f"データベースエラー: {str(e)}",
         )
     except Exception as e:
         raise HTTPException(
@@ -197,67 +223,76 @@ async def check_index_job_status(
         )
 
 
-@router.websocket("/ws/index_job/{job_id}")
-async def websocket_endpoint(
-    websocket: WebSocket,
+@router.post("/cancel_index_job/{job_id}")
+async def cancel_index_job(
     job_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    await websocket.accept()
+    index_job = await get_index_job(db, job_id)
+    if not index_job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if index_job.status not in ["pending", "processing"]:
+        return {"message": f"Job already in {index_job.status} state, cannot cancel"}
+
+    # Cancel the running retriever if it exists
+    if job_id in running_retrievers:
+        retriever = running_retrievers[job_id]
+        # This will trigger the snapshot restore in the background task
+        retriever.cancel()
+
+        # Wait a short time to give the restore process a chance to start
+        await asyncio.sleep(0.2)
+
+        # Update job status
+        await update_job_status(
+            db,
+            job_id,
+            "cancelled",
+            user=current_user,
+            error="ユーザーによりキャンセルされました",
+        )
+
+        # Remove from running retrievers after cancellation
+        running_retrievers.pop(job_id, None)
+        return {"message": "Job cancelled and index restored to previous state"}
+    else:
+        # If job is pending but retriever not started, just mark as cancelled
+        await update_job_status(
+            db,
+            job_id,
+            "cancelled",
+            user=current_user,
+            error="ユーザーによりキャンセルされました",
+        )
+        return {"message": "Pending job cancelled"}
+
+
+@router.get("/active_index_job")
+async def get_active_index_jobs(db: AsyncSession = Depends(get_db)):
     try:
-        logger.debug(f"WebSocket connection established for job {job_id}")
-        async with AsyncSessionLocal() as db:
-            last_status = None
-
-            while True:
-                db.expire_all()
-                job = await get_index_job(db, job_id)
-                if job is None:
-                    logger.error(f"Job {job_id} not found")
-                    await websocket.send_json({"error": "Job not found"})
-                    await websocket.close()
-                    break
-                logger.debug(f"Checking job {job_id}, status: {job.status}")
-                current_status = job.status
-
-                if current_status != last_status:
-                    logger.debug(
-                        f"Status changed from {last_status} to {current_status}"
-                    )
-                    response = {
-                        "job_id": job.id,
-                        "status": job.status,
-                        "updated_at": job.updated_at.isoformat(),
-                    }
-                    if job.status == "completed":
-                        response["reviews_included"] = job.reviews_included
-                    if job.status == "failed":
-                        response["error"] = job.error
-                    await websocket.send_json(response)
-                    last_status = current_status
-                if job.status in ["completed", "failed"]:
-                    logger.debug(f"WebSocket connection closed for job {job_id}")
-                    await websocket.close()
-                    break
-
-                await asyncio.sleep(2)
-
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket for job {job_id} disconnected")
+        stmt = select(IndexJob).filter(
+            IndexJob.status.in_(["pending", "processing"])
+        )
+        result = await db.execute(stmt)
+        job = result.scalar_one_or_none()
+        if not job:
+            return {"job_id": None, "status": None, "created_at": None}
+        response = {
+            "job_id": job.id,
+            "status": job.status,
+            "created_at": job.created_at.isoformat(),
+            "updated_at": job.updated_at.isoformat(),
+        }
+        return response
     except SQLAlchemyError as e:
-        await websocket.send_json({"error": f"Database error: {str(e)}"})
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"データベースエラー: {str(e)}",
+        )
     except Exception as e:
-        logger.error(f"Error in WebSocket for job {job_id}: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
-        try:
-            await websocket.send_json({"error": "An unexpected error occurred"})
-        except:
-            pass
-    finally:
-        logger.debug(f"WebSocket connection closed for job {job_id}")
-        for task in asyncio.all_tasks():
-            if task is not asyncio.current_task() and task.get_name().startswith(
-                f"job{job_id}"
-            ):
-                task.cancel()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal error: {str(e)}",
+        )

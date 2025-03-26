@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import List, Optional
 
 from fastapi import UploadFile
 from pydantic import BaseModel
@@ -7,17 +7,16 @@ from pydantic import BaseModel
 
 class FileItem(BaseModel):
     id: int
-    display_name: Union[str, None] = None
+    display_name: Optional[str] = None
     file_path: str
     stage: str
     review_type: str
     created_at: str
+    parent_id: Optional[int] = None
 
 
 class FileListResponse(BaseModel):
-    new: Dict[str, List[FileItem]]
-    past: Dict[str, List[FileItem]]
-    final: List[FileItem]
+    reviews: List[FileItem]
 
 
 class CombineAndCleanRequest(BaseModel):
@@ -38,14 +37,14 @@ class CombineAndCleanResponse(BaseModel):
 class IndexStatusResponse(BaseModel):
     exists: bool
     count: int
-    lastUpdated: Union[datetime, None] = None
+    lastUpdated: Optional[datetime] = None
 
 
 class ProcessReviewsSavedRequest(BaseModel):
     industry_id: int
     use_past_reviews: bool
     new_cleaned_id: int
-    display_name: Union[str, None] = None
+    display_name: Optional[str] = None
 
 
 class DownloadFileResponse(BaseModel):

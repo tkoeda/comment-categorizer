@@ -68,7 +68,6 @@ async def process_index_job(
             if old_index and os.path.exists(old_index.index_path) and not replace:
                 retriever = await FaissRetriever.create(
                     industry=industry,
-                    user=user,
                     db=db,
                     embeddings_model=old_index.embeddings_model,
                 )
@@ -98,7 +97,6 @@ async def process_index_job(
                     # Create the retriever with standard configuration
                     retriever = await FaissRetriever.create(
                         industry=industry,
-                        user=user,
                         db=None,  # No DB yet - we'll handle DB operations manually
                         past_excel_path=past_review.file_path,
                         embeddings_model=embeddings_model,
@@ -209,7 +207,6 @@ async def process_index_job(
                     # NEW INDEX CASE
                     retriever = await FaissRetriever.create(
                         industry=industry,
-                        user=user,
                         db=db,  # Pass DB for normal operation
                         past_excel_path=past_review.file_path,
                         embeddings_model=embeddings_model,

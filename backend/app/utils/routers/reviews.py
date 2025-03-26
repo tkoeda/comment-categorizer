@@ -1,7 +1,7 @@
 import os
 import time
 
-from app.constants import GPT_PRICING, MODEL
+from app.common.constants import GPT_PRICING, MODEL
 from app.models.industries import Industry
 from app.rag_pipeline.indexer import DummyRetriever
 from app.rag_pipeline.openai_llm import OpenAILLM

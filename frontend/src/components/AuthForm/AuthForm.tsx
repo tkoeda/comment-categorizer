@@ -87,10 +87,7 @@ function AuthForm({ route, method }: AuthFormProps) {
                     }
                 });
             } else {
-                setGlobalError(
-                    error.message ||
-                        "An unexpected error occurred. Please try again."
-                );
+                setGlobalError(error.message || "予期しないエラーが発生しました。");
             }
         } finally {
             setLoading(false);

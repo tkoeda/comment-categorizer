@@ -66,7 +66,7 @@ function SettingsPage() {
             notifications.show({
                 title: "エラー",
                 message:
-                    error.response.data.detail || "An unexpected error occurred.",
+                    error.response.data.detail || "予期しないエラーが発生しました。",
                 color: "red",
                 icon: <IconX size={16} />,
             });
@@ -96,7 +96,7 @@ function SettingsPage() {
             notifications.show({
                 title: "エラー",
                 message:
-                    error.response.data.detail || "An unexpected error occurred.",
+                    error.response.data.detail || "予期しないエラーが発生しました。",
                 color: "red",
                 icon: <IconX size={16} />,
             });

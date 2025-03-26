@@ -3,8 +3,8 @@ import json
 import logging
 import os
 
-from app.auth.dependencies import get_current_user
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.crud.industries import (
     create_category,
     create_industry,
@@ -26,20 +26,6 @@ from sqlalchemy.orm import selectinload
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-DATA_FILE = "industry_categories.json"
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "..", "data")
-
-
-def save_industries(data):
-    try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except IOError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save industry data: {str(e)}",
-        )
 
 
 @router.get("/", response_model=list[IndustryResponse])
@@ -49,7 +35,7 @@ async def list_industries(
 ):
     """Return the current industries and their categories."""
     try:
-        industries = await get_industries(db)
+        industries = await get_industries(db, current_user)
         return industries
     except SQLAlchemyError as e:
         raise HTTPException(
@@ -66,9 +52,7 @@ async def add_industry(
 ):
     """Add a new industry with its categories."""
     try:
-        new_industry = await create_industry(
-            db, industry_data.name, user_id=current_user.id
-        )
+        new_industry = await create_industry(db, industry_data.name, current_user)
         if not new_industry:
             raise HTTPException(status_code=400, detail="Industry already exists")
 
@@ -116,10 +100,10 @@ async def add_industry(
         # Re-raise HTTP exceptions without modification
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in add_industry: {str(e)}")
+        logger.error(f"予期しないエラーが発生しました: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred",
+            detail="予期しないエラーが発生しました。",
         )
 
 
@@ -131,7 +115,7 @@ async def remove_industry(
 ):
     """Delete an industry and its categories from the database."""
     try:
-        result = await delete_industry(db, industry_id)
+        result = await delete_industry(db, industry_id, current_user)
         if not result:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Industry not found"
@@ -146,5 +130,5 @@ async def remove_industry(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error: {str(e)}",
+            detail=f"予期しないエラーが発生しました: {str(e)}",
         )

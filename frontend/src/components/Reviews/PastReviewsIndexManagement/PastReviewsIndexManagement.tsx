@@ -5,6 +5,7 @@ import {
     Divider,
     Group,
     List,
+    Modal,
     Progress,
     Radio,
     Select,
@@ -16,12 +17,12 @@ import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconDatabase, IconRefresh } from "@tabler/icons-react";
 import React, { useEffect, useState } from "react";
 import api from "../../../api/api";
-import { Industry, ReviewLists } from "../../../types/types";
+import { Industry, ReviewItem } from "../../../types/types";
 import { loadFileLists } from "../../../utils/utils";
 
 interface IndexJobStatus {
     job_id: string;
-    status: "pending" | "processing" | "completed" | "failed";
+    status: "pending" | "processing" | "completed" | "failed" | "cancelled";
     created_at: string;
     updated_at: string;
     reviews_included?: number;
@@ -38,7 +39,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
     refreshFlag,
 }) => {
     const [industryId, setIndustryId] = useState<number | null>(null);
-    const [fileLists, setFileLists] = useState<ReviewLists | null>(null);
+    const [fileLists, setFileLists] = useState<ReviewItem[] | null>(null);
     const [selectedPastCleanedId, setSelectedPastCleanedId] = useState<
         number | null
     >(null);
@@ -54,21 +55,32 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
     const [jobStatus, setJobStatus] = useState<IndexJobStatus | null>(null);
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const pollingTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+    const [confirmModalOpen, setConfirmModalOpen] = useState(false);
 
+    const isCancelButtonDisabled = () => {
+        return !jobStatus || !["pending", "processing"].includes(jobStatus.status);
+    };
     // Load file lists and index status when industry changes
     useEffect(() => {
         const fetchData = async () => {
             if (industryId) {
                 try {
-                    const data: ReviewLists = await loadFileLists(industryId);
+                    const data: ReviewItem[] = await loadFileLists(
+                        industryId,
+                        "past",
+                        "cleaned"
+                    );
+                    console.log("Received data:", data);
                     setFileLists(data);
 
                     await fetchIndexStatus();
-                } catch (error) {
+                } catch (error: any) {
                     console.error("Error loading data", error);
                     notifications.show({
                         title: "Error",
-                        message: "Failed to load data. Please try again.",
+                        message:
+                            error.response?.data?.detail ||
+                            "予期しないエラーが発生しました。",
                         color: "red",
                     });
                 }
@@ -102,12 +114,34 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                 pollingTimeoutRef.current = null;
             }
         };
-    }, [socket]);
+    }, []);
+
+    useEffect(() => {
+        const fetchActiveJob = async () => {
+            try {
+                const response = await api.get("/index/active_index_job");
+                if (response.data && response.data.job_id) {
+                    setJobStatus(response.data);
+                    if (["pending", "processing"].includes(response.data.status)) {
+                        connectWebSocket(response.data.job_id);
+                    }
+                } else {
+                    setJobStatus(null);
+                }
+            } catch (error) {
+                console.error("Error fetching active job", error);
+                setJobStatus(null);
+            }
+        };
+
+        fetchActiveJob();
+    }, []);
 
     const resetForm = () => {
         setSelectedPastCleanedId(null);
         setJobStatus(null);
         setIndustryId(null);
+        setIsProcessing(false);
     };
 
     const fetchIndexStatus = async () => {
@@ -124,6 +158,27 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
         }
     };
 
+    const handleCancelProcess = async () => {
+        if (!jobStatus) return;
+        try {
+            console.log("Canceling index job:", jobStatus.job_id);
+            const response = await api.post(
+                `/index/cancel_index_job/${jobStatus.job_id}`
+            );
+            notifications.show({
+                title: "キャンセル要求",
+                message: "プロセスのキャンセルが要求されました。",
+                color: "orange",
+            });
+        } catch (error: any) {
+            notifications.show({
+                title: "キャンセルエラー",
+                message: error.response?.data?.detail || error.message,
+                color: "red",
+            });
+        }
+    };
+
     // Connect to WebSocket for real-time status updates
     const connectWebSocket = (id: string) => {
         // Ensure protocol matches (ws:// for http, wss:// for https)
@@ -131,7 +186,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
 
         const wsProtocol = backendUrl.protocol === "https:" ? "wss:" : "ws:";
 
-        const wsUrl = `${wsProtocol}//${backendUrl.host}/api/v1/index/ws/index_job/${id}`;
+        const wsUrl = `${wsProtocol}//${backendUrl.host}/api/v1/ws/index_job/${id}`;
         console.log("Connecting to:", wsUrl);
         const ws = new WebSocket(wsUrl);
 
@@ -145,21 +200,27 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                 const data = JSON.parse(event.data);
                 setJobStatus(data);
 
-                // If job is completed or failed, close the connection
-                if (data.status === "completed" || data.status === "failed") {
-                    ws.close();
-                    setIsProcessing(false);
-
-                    // Show notification based on status
+                if (data.status === "completed") {
                     notifications.show({
-                        title: data.status === "completed" ? "完了" : "失敗",
-                        message:
-                            data.status === "completed"
-                                ? "インデックスの更新が正常に完了しました"
-                                : `処理に失敗しました: ${
-                                      data.error || "不明なエラー"
-                                  }`,
-                        color: data.status === "completed" ? "green" : "red",
+                        title: "完了",
+                        message: "インデックスの更新が正常に完了しました",
+                        color: "green",
+                    });
+                    resetForm();
+                } else if (data.status === "failed") {
+                    notifications.show({
+                        title: "失敗",
+                        message: `処理に失敗しました: ${
+                            data.error || "不明なエラー"
+                        }`,
+                        color: "red",
+                    });
+                    resetForm();
+                } else if (data.status === "cancelled") {
+                    notifications.show({
+                        title: "キャンセル",
+                        message: "インデックスの更新がキャンセルされました",
+                        color: "orange",
                     });
                     resetForm();
                 }
@@ -167,7 +228,6 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                 console.error("Error parsing WebSocket message:", error);
             } finally {
                 fetchIndexStatus();
-                setIsProcessing(false);
             }
         };
 
@@ -210,7 +270,6 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                     2000
                 );
             } else {
-                setIsProcessing(false);
                 fetchIndexStatus(); // Refresh the index status after completion
 
                 // Show notification based on status
@@ -283,7 +342,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
             });
         } catch (error: any) {
             console.error("Error starting index job:", error);
-            setIsProcessing(false);
+            resetForm();
             notifications.show({
                 title: "Error",
                 message: error.response?.data?.detail || error.message,
@@ -318,13 +377,51 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                 return "完了";
             case "failed":
                 return "失敗";
+            case "cancelled":
+                return "キャンセル済み";
             default:
                 return "不明";
         }
     };
 
+    const onSubmit = () => {
+        if (isProcessing) return;
+        if (uploadMode === "replace") {
+            setConfirmModalOpen(true);
+        } else {
+            handleUpdateIndex();
+        }
+    };
+
     return (
         <>
+            <Modal
+                opened={confirmModalOpen}
+                onClose={() => setConfirmModalOpen(false)}
+                title="確認: インデックスの再作成"
+                centered
+            >
+                <Text>
+                    既存のインデックスが削除され、新しいインデックスが作成されます。本当によろしいですか？
+                </Text>
+                <Group justify="apart" mt="md">
+                    <Button
+                        variant="outline"
+                        onClick={() => setConfirmModalOpen(false)}
+                    >
+                        キャンセル
+                    </Button>
+                    <Button
+                        onClick={() => {
+                            setConfirmModalOpen(false);
+                            handleUpdateIndex();
+                        }}
+                        color="orange"
+                    >
+                        確認する
+                    </Button>
+                </Group>
+            </Modal>
             <Title order={2} mb="md">
                 過去のレビューインデックス管理
             </Title>
@@ -388,7 +485,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                         label="処理済み過去レビューを選択"
                         placeholder="インデックスに追加する処理済み過去レビューを選択"
                         data={
-                            fileLists?.past?.cleaned.map((file) => ({
+                            fileLists?.map((file) => ({
                                 value: file.id.toString(),
                                 label: file.display_name,
                             })) || []
@@ -401,7 +498,12 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                         onChange={(value) =>
                             setSelectedPastCleanedId(value ? Number(value) : null)
                         }
-                        disabled={!fileLists?.past?.cleaned.length || isProcessing}
+                        disabled={
+                            !fileLists?.length ||
+                            isProcessing ||
+                            jobStatus?.status === "processing" ||
+                            jobStatus?.status === "pending"
+                        }
                         required
                         clearable
                     />
@@ -421,7 +523,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                             />
                             <Radio
                                 value="replace"
-                                label="既存のインデックスを置き換え"
+                                label="インデックスの再作成"
                                 disabled={isProcessing}
                             />
                         </Group>
@@ -446,7 +548,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
 
                     <Group>
                         <Button
-                            onClick={handleUpdateIndex}
+                            onClick={onSubmit}
                             leftSection={
                                 uploadMode === "add" ? (
                                     <IconDatabase size={14} />
@@ -472,6 +574,14 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                                 ステータス表示をクリア
                             </Button>
                         )}
+                        <Button
+                            onClick={handleCancelProcess}
+                            variant="outline"
+                            disabled={isCancelButtonDisabled()}
+                            color="red"
+                        >
+                            プロセスをキャンセル
+                        </Button>
                     </Group>
                 </Stack>
 

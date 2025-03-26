@@ -1,4 +1,3 @@
-
 export interface Industry {
     id: number;
     name: string;
@@ -12,18 +11,10 @@ export interface ReviewItem {
     stage: string;
     review_type: string;
     created_at: string;
+    parent_id: number | null;
 }
 
-export interface ReviewLists {
-    new: {
-        cleaned: ReviewItem[];
-        combined: ReviewItem[];
-        [stage: string]: ReviewItem[];
-    };
-    past: {
-        cleaned: ReviewItem[];
-        combined: ReviewItem[];
-        [stage: string]: ReviewItem[];
-    };
-    final: ReviewItem[];
+export interface ReviewNode {
+    review: ReviewItem;
+    children: ReviewNode[];
 }

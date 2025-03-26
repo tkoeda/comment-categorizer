@@ -10,8 +10,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .schemas import Token
-from .security import (
+from ..core.security import (
     TokenType,
     blacklist_tokens,
     create_access_token,
@@ -19,6 +18,7 @@ from .security import (
     oauth2_scheme,
     verify_token,
 )
+from ..schemas.auth import Token
 
 logging.basicConfig(level=logging.WARNING)
 

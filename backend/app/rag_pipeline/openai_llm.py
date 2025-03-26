@@ -167,7 +167,7 @@ class OpenAILLM:
         self.total_tokens += response.usage.total_tokens
         self.api_calls += 1
 
-        display_rate_limit_progress(headers)
+        # display_rate_limit_progress(headers)
         reset_time = time_to_seconds(headers.get("x-ratelimit-reset-tokens", 1))
         remaining_tokens = int(headers.get("x-ratelimit-remaining-tokens", 0))
         if remaining_tokens < 4000:

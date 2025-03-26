@@ -1,21 +1,22 @@
 from app.models.industries import Category, Industry
+from app.models.users import User
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 
-async def create_industry(db: AsyncSession, name: str, user_id: int):
+async def create_industry(db: AsyncSession, name: str, user: User):
     """Create a new industry."""
     try:
         stmt = select(Industry).filter(
-            Industry.name == name, Industry.user_id == user_id
+            Industry.name == name, Industry.user_id == user.id
         )
         result = await db.execute(stmt)
         existing_industry = result.scalar_one_or_none()
         if existing_industry:
             return None
 
-        industry = Industry(name=name, user_id=user_id)
+        industry = Industry(name=name, user_id=user.id)
         db.add(industry)
         await db.commit()
         await db.refresh(industry)
@@ -25,21 +26,21 @@ async def create_industry(db: AsyncSession, name: str, user_id: int):
         raise
 
 
-async def get_industry(db: AsyncSession, industry_id: int):
+async def get_industry(db: AsyncSession, industry_id: int, user: User):
     """Retrieve an industry by its ID."""
     stmt = (
         select(Industry)
-        .filter(Industry.id == industry_id)
+        .filter(Industry.id == industry_id, Industry.user_id == user.id)
         .options(selectinload(Industry.categories))
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
 
-async def delete_industry(db: AsyncSession, industry_id: int):
+async def delete_industry(db: AsyncSession, industry_id: int, user: User):
     """Delete an industry by ID."""
     try:
-        industry = await get_industry(db, industry_id)
+        industry = await get_industry(db, industry_id, user)
         if not industry:
             return False
 
@@ -51,9 +52,13 @@ async def delete_industry(db: AsyncSession, industry_id: int):
         raise
 
 
-async def get_industries(db: AsyncSession):
+async def get_industries(db: AsyncSession, user: User):
     """Retrieve all industries with their categories."""
-    stmt = select(Industry).options(selectinload(Industry.categories))
+    stmt = (
+        select(Industry)
+        .filter(Industry.user_id == user.id)
+        .options(selectinload(Industry.categories))
+    )
     result = await db.execute(stmt)
     industries = result.scalars().all()
     return [

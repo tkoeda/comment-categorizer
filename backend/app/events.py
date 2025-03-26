@@ -3,7 +3,7 @@ import logging
 import os
 import shutil
 
-from app.constants import CACHE_DIR, INDEX_DIR, REVIEW_FOLDER_PATHS
+from app.common.constants import CACHE_DIR, INDEX_DIR, REVIEW_FOLDER_PATHS
 from app.models.industries import Industry
 from app.models.reviews import Review
 from sqlalchemy import event

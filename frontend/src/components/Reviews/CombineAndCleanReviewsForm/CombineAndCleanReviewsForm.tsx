@@ -100,7 +100,7 @@ const CombineAndCleanReviewsForm: React.FC<CombineAndCleanReviewsFormProps> = ({
     return (
         <form onSubmit={handleSubmit}>
             <Title order={2} mb="md">
-                ステップ1: レビューを一括処理する
+                コメントを結合し、クリーニングする
             </Title>
 
             <Stack gap="md">

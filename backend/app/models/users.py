@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
+    from app.models.index import Index, IndexJob
     from app.models.industries import Industry
     from app.models.reviews import Review
 
@@ -41,6 +42,12 @@ class User(Base):
     )
     industries: Mapped[List["Industry"]] = relationship(
         "Industry", back_populates="user", cascade="all, delete-orphan"
+    )
+    indexes: Mapped[List["Index"]] = relationship(
+        "Index", back_populates="user", cascade="all, delete-orphan"
+    )
+    index_jobs: Mapped[List["IndexJob"]] = relationship(
+        "IndexJob", back_populates="user", cascade="all, delete-orphan"
     )
 
     @property
