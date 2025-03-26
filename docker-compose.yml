@@ -2,8 +2,6 @@ services:
   postgres:
     image: postgres:14-alpine
     container_name: postgres
-    ports:
-      - "5433:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -22,8 +20,6 @@ services:
       dockerfile: Dockerfile
     tty: true 
     container_name: backend
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -41,15 +37,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: frontend
-    ports:
-      - "${FRONTEND_PORT:-5173}:5173" 
     volumes:
       - ./frontend:/code
       - /code/node_modules
@@ -58,7 +51,6 @@ services:
       - VITE_API_URL_DEPLOY=${VITE_API_URL_DEPLOY}
     depends_on:
       - backend
-    command: npm run dev
 
 volumes:
   postgres_data:
