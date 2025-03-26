@@ -82,3 +82,8 @@ If you want to change environment variables or requirements.txt
 ```bash
 docker-compose up -d --force-recreate
 ```
+
+check unused docker image, vol, network, container
+```bash
+docker system df
+```
