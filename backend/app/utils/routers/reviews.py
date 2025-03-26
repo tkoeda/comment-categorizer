@@ -23,6 +23,7 @@ async def classify_and_merge(
     new_cleaned_path: str,
     use_past_reviews: bool = False,
     user_api_key: str = None,
+    output_path: str = None,
 ) -> str:
     """
     Runs the classification pipeline and computes diagnostics (token counts, cost, etc.),
@@ -168,10 +169,9 @@ async def classify_and_merge(
         token_info,
         section_times,
         model=llm.model,
-        industry_name=industry.name,
         embeddings_model=embeddings_model,
         new_combined_path=new_combined_path,
-        new_cleaned_path=new_cleaned_path,
+        output_path=output_path,
     )
     section_times["saving_results"] = time.time() - start_save
 

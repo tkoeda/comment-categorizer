@@ -10,7 +10,7 @@ from typing import Optional
 
 import faiss
 import tqdm
-from app.common.constants import CACHE_DIR, INDEX_DIR
+from app.common.constants import get_user_cache_dir, get_user_index_dir
 from app.models.index import Index
 from app.models.industries import Industry
 from app.models.users import User
@@ -37,7 +37,6 @@ class FaissRetriever:
         db: Optional[AsyncSession] = None,
         past_excel_path: Optional[str] = None,
         embeddings_model="pkshatech/GLuCoSE-base-ja-v2",
-        index_dir=INDEX_DIR,
     ):
         # Create an instance with minimal initialization
         instance = cls.__new__(cls)
@@ -49,7 +48,6 @@ class FaissRetriever:
             db=db,
             past_excel_path=past_excel_path,
             embeddings_model=embeddings_model,
-            index_dir=index_dir,
         )
 
         return instance
@@ -64,16 +62,15 @@ class FaissRetriever:
         db: Optional[AsyncSession] = None,
         past_excel_path: Optional[str] = None,
         embeddings_model="pkshatech/GLuCoSE-base-ja-v2",
-        index_dir=INDEX_DIR,
     ):
         self.past_excel_path = past_excel_path
-        self.index_dir = index_dir
         self.user = user
         self.embeddings_model_name = embeddings_model
         self.embeddings_model = SentenceTransformer(embeddings_model)
         self.industry_obj = industry
         self.industry_name = industry.name
         self.cancel_requested = False
+        self.index_dir = get_user_index_dir(user.id)
         # スナップショット
         self.snapshot_dir = None
         self.snapshot_index_path = None
@@ -108,7 +105,8 @@ class FaissRetriever:
                 self.index_dir, f"{self.industry_name}.index"
             )
             self.cache_path = os.path.join(
-                CACHE_DIR, f"past_reviews_{self.industry_name}.pkl"
+                get_user_cache_dir(user.id),
+                f"past_reviews_{self.industry_name}.pkl",
             )
 
         if os.path.exists(self.index_path) and os.path.exists(self.cache_path):
@@ -261,7 +259,8 @@ class FaissRetriever:
                     executor, self._generate_index_sync
                 )
                 if index_success:
-                    # Reset paths to original for database record
+                    shutil.copy2(temp_index_path, original_index_path)
+                    shutil.copy2(temp_cache_path, original_cache_path)
                     self.index_path = original_index_path
                     self.cache_path = original_cache_path
 

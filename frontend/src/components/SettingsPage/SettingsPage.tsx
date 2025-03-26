@@ -10,11 +10,12 @@ import {
 import { notifications } from "@mantine/notifications";
 import { IconCheck, IconTrash, IconX } from "@tabler/icons-react";
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../../api/api";
-import { useAuth } from "../../context/AuthContext";
+import { ACCESS_TOKEN } from "../../constants";
 function SettingsPage() {
     const [apiKey, setApiKey] = useState("");
-    const { logout } = useAuth();
+    const navigate = useNavigate();
     const handleUpdateApiKey = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
@@ -90,7 +91,8 @@ function SettingsPage() {
                     color: "green",
                     icon: <IconCheck size={16} />,
                 });
-                logout();
+                localStorage.removeItem(ACCESS_TOKEN);
+                navigate("/register", { replace: true });
             }
         } catch (error: any) {
             notifications.show({

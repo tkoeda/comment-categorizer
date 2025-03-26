@@ -67,6 +67,10 @@ settings = Settings()
 app = FastAPI(lifespan=lifespan)
 origins = [
     "http://localhost:5173",
+    "http://133.167.85.128:5173",
+    "http://133.167.85.128",
+    "http://os3-372-19374.vs.sakura.ne.jp",
+    "http://os3-372-19374.vs.sakura.ne.jp:5173",
 ]
 app.add_middleware(
     CORSMiddleware,

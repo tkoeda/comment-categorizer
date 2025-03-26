@@ -17,7 +17,7 @@ import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconDatabase, IconRefresh } from "@tabler/icons-react";
 import React, { useEffect, useState } from "react";
 import api from "../../../api/api";
-import { apiUrl } from "../../../constants";
+import { apiVersionPath, myBaseUrl } from "../../../constants";
 import { Industry, ReviewItem } from "../../../types/types";
 import { loadFileLists } from "../../../utils/utils";
 interface IndexJobStatus {
@@ -183,11 +183,15 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
     // Connect to WebSocket for real-time status updates
     const connectWebSocket = (id: string) => {
         // Ensure protocol matches (ws:// for http, wss:// for https)
+        const baseUrl = myBaseUrl;
         const backendUrl = new URL(import.meta.env.VITE_API_URL_LOCAL);
 
-        const wsProtocol = backendUrl.protocol === "https:" ? "wss:" : "ws:";
+        const wsProtocol = baseUrl.startsWith("https") ? "wss:" : "ws:";
+        const wsHost = new URL(baseUrl).host;
 
-        const wsUrl = `${wsProtocol}//${apiUrl}/ws/index_job/${id}`;
+        // Construct the WebSocket URL using apiVersionPath
+        const wsUrl = `${wsProtocol}//${wsHost}${apiVersionPath}/ws/index_job/${id}`;
+
         console.log("Connecting to:", wsUrl);
         const ws = new WebSocket(wsUrl);
 

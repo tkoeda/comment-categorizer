@@ -3,7 +3,11 @@ import logging
 import os
 import shutil
 
-from app.common.constants import CACHE_DIR, INDEX_DIR, REVIEW_FOLDER_PATHS
+from app.common.constants import (
+    get_user_cache_dir,
+    get_user_dirs,
+    get_user_index_dir,
+)
 from app.models.industries import Industry
 from app.models.reviews import Review
 from sqlalchemy import event
@@ -26,6 +30,7 @@ def register_event_listeners(app=None):
     @event.listens_for(Industry, "after_delete")
     def delete_industry_folder(mapper, connection, target):
         """Delete the folder associated with a deleted industry."""
+        user_dirs = get_user_dirs(target.user_id)
         review_types_with_stages = {
             "new": ["combined", "cleaned", "raw"],
             "past": ["combined", "cleaned", "raw"],
@@ -34,9 +39,7 @@ def register_event_listeners(app=None):
 
         for review_type, stages in review_types_with_stages.items():
             for stage in stages:
-                folder_path = REVIEW_FOLDER_PATHS.get(review_type, {}).get(
-                    stage, None
-                )
+                folder_path = user_dirs.get(review_type, {}).get(stage, None)
 
                 if folder_path:
                     industry_folder_path = os.path.join(folder_path, target.name)
@@ -64,8 +67,10 @@ def register_event_listeners(app=None):
     @event.listens_for(Industry, "after_delete")
     def delete_index(mapper, connection, target):
         """Delete the index associated with a deleted industry."""
+        user_id = target.user_id
+        index_dir = get_user_index_dir(user_id)
         industry_name = target.name
-        index_path = os.path.join(INDEX_DIR, f"{industry_name}.index")
+        index_path = os.path.join(index_dir, f"{industry_name}.index")
         if os.path.exists(index_path):
             try:
                 os.remove(index_path)
@@ -76,8 +81,10 @@ def register_event_listeners(app=None):
     @event.listens_for(Industry, "after_delete")
     def delete_cache(mapper, connection, target):
         """Delete the cache associated with a deleted industry."""
+        user_id = target.user_id
+        cache_dir = get_user_cache_dir(user_id)
         industry_name = target.name
-        cache_path = os.path.join(CACHE_DIR, f"past_reviews_{industry_name}.pkl")
+        cache_path = os.path.join(cache_dir, f"past_reviews_{industry_name}.pkl")
         if os.path.exists(cache_path):
             try:
                 os.remove(cache_path)

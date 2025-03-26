@@ -14,6 +14,7 @@ def get_unique_filename(
     industry_name: str = "",
     extension: str = ".xlsx",
     timestamp: str = None,
+    user_id: int = None,
 ) -> str:
     """
     Create a unique filename based on:
@@ -34,6 +35,8 @@ def get_unique_filename(
         segments.append(industry_name)
     if review_type:
         segments.append(review_type)
+    if user_id is not None:
+        segments.append(f"user_{user_id}")
     segments.append(timestamp)
     if stage:
         segments.append(stage)
@@ -60,10 +63,9 @@ def save_results_to_excel(
     token_info,
     section_times,
     model,
-    industry_name,
+    output_path,
+    new_combined_path,
     embeddings_model=None,
-    new_combined_path="",
-    new_cleaned_path="",
 ):
     """
     Save review classification results and token usage details to an Excel file.
@@ -72,13 +74,8 @@ def save_results_to_excel(
       - Cleaned reviews (from the processed file), and
       - Categorized results (classification output).
     """
-    final_dir = os.path.join(
-        REVIEW_FOLDER_PATHS.get("final", {}).get("processed", ""), industry_name
-    )
-    os.makedirs(final_dir, exist_ok=True)
-    output_path = get_unique_filename(
-        final_dir, review_type="new", extension=".xlsx"
-    )
+    output_dir = os.path.dirname(output_path)
+    os.makedirs(output_dir, exist_ok=True)
 
     all_data = []
     for res in results:

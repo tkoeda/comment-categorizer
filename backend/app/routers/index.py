@@ -37,16 +37,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-REVIEWS_DIR = os.path.join(DATA_DIR, "reviews")
-NEW_RAW_DIR = os.path.join(REVIEWS_DIR, "new", "raw")
-NEW_COMBINED_DIR = os.path.join(REVIEWS_DIR, "new", "combined")
-NEW_CLEANED_DIR = os.path.join(REVIEWS_DIR, "new", "cleaned")
-PAST_RAW_DIR = os.path.join(REVIEWS_DIR, "past", "raw")
-PAST_COMBINED_DIR = os.path.join(REVIEWS_DIR, "past", "combined")
-PAST_CLEANED_DIR = os.path.join(REVIEWS_DIR, "past", "cleaned")
-FINAL_DIR = os.path.join(REVIEWS_DIR, "final")
-
-
 router = APIRouter()
 
 

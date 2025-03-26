@@ -3,10 +3,7 @@ import logging
 import os
 import time
 
-from app.common.constants import (
-    DATA_DIR,
-    REVIEW_FOLDER_PATHS,
-)
+from app.common.constants import DATA_DIR, REVIEW_FOLDER_PATHS, get_user_dirs
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.crud.industries import get_industry
@@ -40,13 +37,6 @@ from sqlalchemy.future import select
 
 logger = logging.getLogger(__name__)
 REVIEWS_DIR = os.path.join(DATA_DIR, "reviews")
-NEW_RAW_DIR = os.path.join(REVIEWS_DIR, "new", "raw")
-NEW_COMBINED_DIR = os.path.join(REVIEWS_DIR, "new", "combined")
-NEW_CLEANED_DIR = os.path.join(REVIEWS_DIR, "new", "cleaned")
-PAST_RAW_DIR = os.path.join(REVIEWS_DIR, "past", "raw")
-PAST_COMBINED_DIR = os.path.join(REVIEWS_DIR, "past", "combined")
-PAST_CLEANED_DIR = os.path.join(REVIEWS_DIR, "past", "cleaned")
-FINAL_DIR = os.path.join(REVIEWS_DIR, "final")
 
 
 console = Console()
@@ -159,22 +149,15 @@ async def combine_and_clean_endpoint(
     cleaned_file = None
 
     try:
+        user_dir = get_user_dirs(current_user.id)
         if review_type == "new":
-            raw_dir = os.path.join(REVIEW_FOLDER_PATHS["new"]["raw"], industry.name)
-            combined_dir = os.path.join(
-                REVIEW_FOLDER_PATHS["new"]["combined"], industry.name
-            )
-            cleaned_dir = os.path.join(
-                REVIEW_FOLDER_PATHS["new"]["cleaned"], industry.name
-            )
+            raw_dir = os.path.join(user_dir["new"]["raw"], industry.name)
+            combined_dir = os.path.join(user_dir["new"]["combined"], industry.name)
+            cleaned_dir = os.path.join(user_dir["new"]["cleaned"], industry.name)
         elif review_type == "past":
-            raw_dir = os.path.join(REVIEW_FOLDER_PATHS["past"]["raw"], industry.name)
-            combined_dir = os.path.join(
-                REVIEW_FOLDER_PATHS["past"]["combined"], industry.name
-            )
-            cleaned_dir = os.path.join(
-                REVIEW_FOLDER_PATHS["past"]["cleaned"], industry.name
-            )
+            raw_dir = os.path.join(user_dir["past"]["raw"], industry.name)
+            combined_dir = os.path.join(user_dir["past"]["combined"], industry.name)
+            cleaned_dir = os.path.join(user_dir["past"]["cleaned"], industry.name)
 
         os.makedirs(raw_dir, exist_ok=True)
         os.makedirs(combined_dir, exist_ok=True)
@@ -202,6 +185,7 @@ async def combine_and_clean_endpoint(
             stage="combined",
             industry_name=industry.name,
             timestamp=timestamp,
+            user_id=current_user.id,
         )
 
         input_glob = os.path.join(raw_dir, "*.xlsx")
@@ -361,7 +345,16 @@ async def process_reviews_saved_endpoint(
                 logger.info("No index found for industry. Skipping FAISS retrieval.")
                 retriever = DummyRetriever()
 
-        output_excel_path = await classify_and_merge(
+        user_dirs = get_user_dirs(current_user.id)
+        final_dir = os.path.join(user_dirs["final"]["processed"], industry.name)
+        os.makedirs(final_dir, exist_ok=True)
+
+        # Generate output path in user's directory
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{industry.name}_{timestamp}_final.xlsx"
+        output_excel_path = os.path.join(final_dir, output_filename)
+
+        await classify_and_merge(
             industry=industry,
             new_reviews=new_reviews,
             retriever=retriever,
@@ -369,6 +362,7 @@ async def process_reviews_saved_endpoint(
             new_cleaned_path=new_cleaned_review.file_path,
             use_past_reviews=request.use_past_reviews,
             user_api_key=current_user.openai_api_key,
+            output_path=output_excel_path,
         )
 
         display_name = (

@@ -65,7 +65,9 @@ async def add_industry(
         stmt = (
             select(Industry)
             .options(selectinload(Industry.categories))
-            .filter(Industry.id == new_industry.id)
+            .filter(
+                Industry.id == new_industry.id, Industry.user_id == current_user.id
+            )
         )
         result = await db.execute(stmt)
         industry_with_categories = result.scalar_one()
