@@ -266,7 +266,7 @@ async def cancel_index_job(
             user=current_user,
             error="ユーザーによりキャンセルされました",
         )
-        return {"message": "Pending job cancelled"}
+        return {"message": "プロセスのキャンセルが要求されました。"}
 
 
 @router.get("/active_index_job")

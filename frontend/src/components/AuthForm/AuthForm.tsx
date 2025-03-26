@@ -58,7 +58,6 @@ function AuthForm({ route, method }: AuthFormProps) {
                     headers: {
                         "Content-Type": "application/x-www-form-urlencoded",
                     },
-                    withCredentials: true,
                 });
                 login(res.data.access_token);
                 const from = location.state?.from || "/dashboard";

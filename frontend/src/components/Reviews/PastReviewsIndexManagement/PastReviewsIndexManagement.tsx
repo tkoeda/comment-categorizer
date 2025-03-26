@@ -17,9 +17,9 @@ import { notifications } from "@mantine/notifications";
 import { IconAlertCircle, IconDatabase, IconRefresh } from "@tabler/icons-react";
 import React, { useEffect, useState } from "react";
 import api from "../../../api/api";
+import { apiUrl } from "../../../constants";
 import { Industry, ReviewItem } from "../../../types/types";
 import { loadFileLists } from "../../../utils/utils";
-
 interface IndexJobStatus {
     job_id: string;
     status: "pending" | "processing" | "completed" | "failed" | "cancelled";
@@ -165,6 +165,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
             const response = await api.post(
                 `/index/cancel_index_job/${jobStatus.job_id}`
             );
+            console.log("Cancel response:", response.data);
             notifications.show({
                 title: "キャンセル要求",
                 message: "プロセスのキャンセルが要求されました。",
@@ -186,7 +187,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
 
         const wsProtocol = backendUrl.protocol === "https:" ? "wss:" : "ws:";
 
-        const wsUrl = `${wsProtocol}//${backendUrl.host}/api/v1/ws/index_job/${id}`;
+        const wsUrl = `${wsProtocol}//${apiUrl}/ws/index_job/${id}`;
         console.log("Connecting to:", wsUrl);
         const ws = new WebSocket(wsUrl);
 

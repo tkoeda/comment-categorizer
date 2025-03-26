@@ -76,9 +76,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     const logout = async () => {
         try {
-            // Call the backend logout endpoint
-            // This will send the access token via Authorization header
-            // and the refresh token via cookies due to withCredentials: true
             await api.post("/auth/logout");
         } catch (error) {
             console.error("Server logout failed:", error);
@@ -97,7 +94,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             console.log(response);
             if (response.status === 200 && response.data.access_token) {
                 const { access_token } = response.data;
-
                 localStorage.setItem(ACCESS_TOKEN, access_token);
                 return access_token;
             }
@@ -115,7 +111,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
             (response) => response,
             async (error) => {
                 const originalRequest = error.config;
-
+                if (
+                    originalRequest.url.includes("/auth/login") ||
+                    originalRequest.url.includes("/auth/register") ||
+                    originalRequest.url.includes("/auth/refresh")
+                ) {
+                    return Promise.reject(error);
+                }
                 // If the error status is 401 and there hasn't been a retry yet
                 if (error.response?.status === 401 && !originalRequest._retry) {
                     originalRequest._retry = true;

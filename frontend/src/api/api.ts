@@ -1,10 +1,8 @@
 import axios from "axios";
-import { ACCESS_TOKEN } from "../constants";
-
-const myBaseUrl = import.meta.env.VITE_API_URL_LOCAL;
+import { ACCESS_TOKEN, apiUrl } from "../constants";
 
 const api = axios.create({
-    baseURL: myBaseUrl,
+    baseURL: apiUrl,
     withCredentials: true,
 });
 

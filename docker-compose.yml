@@ -55,6 +55,7 @@ services:
       - /code/node_modules
     environment:
       - VITE_API_URL_LOCAL=${VITE_API_URL_LOCAL}
+      - VITE_API_URL_DEPLOY=${VITE_API_URL_DEPLOY}
     depends_on:
       - backend
     command: npm run dev
