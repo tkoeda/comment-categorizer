@@ -15,7 +15,7 @@ from ..core.security import (
     blacklist_tokens,
     create_access_token,
     create_refresh_token,
-    oauth2_scheme,
+    oauth2_scheme_optional,
     verify_token,
 )
 from ..schemas.auth import Token
@@ -77,19 +77,25 @@ async def refresh_access_token(
 @router.post("/logout")
 async def logout(
     response: Response,
-    access_token: str = Depends(oauth2_scheme),
+    access_token: str = Depends(oauth2_scheme_optional),  # Make this optional
     refresh_token: Union[str, None] = Cookie(None, alias="refresh_token"),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     try:
-        if not refresh_token:
-            raise HTTPException(status_code=401, detail="Refresh token missing.")
-        await blacklist_tokens(
-            access_token=access_token, refresh_token=refresh_token, db=db
-        )
+        # Always delete the cookie regardless of token validity
         response.delete_cookie(key="refresh_token", path="/")
 
-        return {"message": "Logged out successfully"}
+        # Only try to blacklist tokens if they exist
+        if access_token or refresh_token:
+            try:
+                await blacklist_tokens(
+                    access_token=access_token, refresh_token=refresh_token, db=db
+                )
+            except Exception as e:
+                # Log the error but don't prevent logout
+                print(f"Error blacklisting tokens: {str(e)}")
 
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid refresh token.")
+        return {"message": "Logged out successfully"}
+    except Exception as e:
+        # Always succeed at logout even if errors occur
+        return {"message": "Logged out successfully"}

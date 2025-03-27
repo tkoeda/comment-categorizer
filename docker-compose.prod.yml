@@ -10,5 +10,5 @@ services:
 
   frontend:
     ports:
-      - "80:4173"
+      - "${FRONTEND_HOST_PORT}:4173"
     command: sh -c "npm run build && npm run preview --host"

@@ -17,17 +17,13 @@ NEW_DIR = os.path.join(REVIEWS_DIR, "new")
 PAST_DIR = os.path.join(REVIEWS_DIR, "past")
 
 
-# Function to get user-specific directories
 def get_user_dirs(user_id):
     """Get user-specific directories based on user_id"""
-    # Main user directory
     user_dir = os.path.join(REVIEWS_DIR, f"user_{user_id}")
 
-    # User-specific directories for new and past reviews
     user_new_dir = os.path.join(user_dir, "new")
     user_past_dir = os.path.join(user_dir, "past")
 
-    # Return dictionary with all user-specific paths
     return {
         "base": user_dir,
         "new": {
@@ -65,7 +61,6 @@ REVIEW_FOLDER_PATHS = {
 }
 
 
-# User-specific index and cache directories
 def get_user_index_dir(user_id):
     user_index_dir = os.path.join(INDEX_DIR, f"user_{user_id}")
     os.makedirs(user_index_dir, exist_ok=True)

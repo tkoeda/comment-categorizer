@@ -57,14 +57,12 @@ async def verify_openai_api_key(api_key: str) -> tuple[bool, str]:
 
     try:
         client = AsyncOpenAI(api_key=api_key)
-        # Making a lightweight API call to verify
         await client.models.list()
         return True, ""
     except Exception as e:
         error_msg = str(e)
         logger.warning(f"Invalid OpenAI API key: {error_msg}")
 
-        # Provide a user-friendly message based on common errors
         if "Incorrect API key" in error_msg or "invalid_api_key" in error_msg:
             return False, "Invalid API key format or credentials"
         elif "rate_limit" in error_msg:

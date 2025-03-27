@@ -2,20 +2,22 @@ import {
     Button,
     Container,
     Group,
+    Modal,
     Paper,
     Space,
+    Text,
     TextInput,
     Title,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconCheck, IconTrash, IconX } from "@tabler/icons-react";
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import api from "../../api/api";
-import { ACCESS_TOKEN } from "../../constants";
+import { useAuth } from "../../context/AuthContext";
 function SettingsPage() {
-    const [apiKey, setApiKey] = useState("");
-    const navigate = useNavigate();
+    const [apiKey, setApiKey] = useState<string>("");
+    const [deleteModalOpen, setDeleteModalOpen] = useState<boolean>(false);
+    const { logout } = useAuth();
     const handleUpdateApiKey = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
@@ -76,12 +78,6 @@ function SettingsPage() {
 
     // Delete the current user's account
     const handleDeleteAccount = async () => {
-        if (
-            !window.confirm(
-                "Are you sure you want to delete your account? This action cannot be undone."
-            )
-        )
-            return;
         try {
             const response = await api.delete("users/me");
             if (response.status === 204) {
@@ -91,17 +87,19 @@ function SettingsPage() {
                     color: "green",
                     icon: <IconCheck size={16} />,
                 });
-                localStorage.removeItem(ACCESS_TOKEN);
-                navigate("/register", { replace: true });
+                setDeleteModalOpen(false);
+                logout();
             }
         } catch (error: any) {
             notifications.show({
                 title: "エラー",
                 message:
-                    error.response.data.detail || "予期しないエラーが発生しました。",
+                    error.response?.data?.detail ||
+                    "予期しないエラーが発生しました。",
                 color: "red",
                 icon: <IconX size={16} />,
             });
+            setDeleteModalOpen(false);
         }
     };
 
@@ -134,11 +132,34 @@ function SettingsPage() {
                 <Button
                     color="red"
                     leftSection={<IconTrash size={16} />}
-                    onClick={handleDeleteAccount}
+                    onClick={() => setDeleteModalOpen(true)}
                 >
                     Delete My Account
                 </Button>
             </Paper>
+            <Modal
+                opened={deleteModalOpen}
+                onClose={() => setDeleteModalOpen(false)}
+                title="Delete Account"
+                centered
+            >
+                <Text>
+                    Are you sure you want to delete your account? This action cannot
+                    be undone.
+                </Text>
+                <Space h="md" />
+                <Group justify="right">
+                    <Button
+                        variant="outline"
+                        onClick={() => setDeleteModalOpen(false)}
+                    >
+                        Cancel
+                    </Button>
+                    <Button color="red" onClick={handleDeleteAccount}>
+                        Delete Account
+                    </Button>
+                </Group>
+            </Modal>
         </Container>
     );
 }
