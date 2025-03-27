@@ -237,8 +237,6 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
 
         ws.onerror = (error) => {
             console.error("WebSocket error:", error);
-            // Fall back to polling if WebSocket fails
-            pollJobStatus(id);
         };
 
         ws.onclose = () => {
@@ -250,49 +248,6 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
     };
 
     // Fallback method: poll job status
-    const pollJobStatus = async (id: string) => {
-        if (pollingTimeoutRef.current) {
-            clearTimeout(pollingTimeoutRef.current);
-            pollingTimeoutRef.current = null;
-        }
-        if (socket && socket.readyState === WebSocket.OPEN) {
-            console.log("Skipping polling");
-            return;
-        }
-        try {
-            // Match the backend endpoint
-            const response = await api.get(`/index/index_job_status/${id}`);
-            setJobStatus(response.data);
-
-            // Continue polling if job is still in progress
-            if (
-                response.data.status !== "completed" &&
-                response.data.status !== "failed"
-            ) {
-                pollingTimeoutRef.current = setTimeout(
-                    () => pollJobStatus(id),
-                    2000
-                );
-            } else {
-                fetchIndexStatus(); // Refresh the index status after completion
-
-                // Show notification based on status
-                notifications.show({
-                    title: response.data.status === "completed" ? "完了" : "失敗",
-                    message:
-                        response.data.status === "completed"
-                            ? "インデックスの更新が正常に完了しました"
-                            : `処理に失敗しました: ${
-                                  response.data.error || "不明なエラー"
-                              }`,
-                    color: response.data.status === "completed" ? "green" : "red",
-                });
-                resetForm();
-            }
-        } catch {
-            pollingTimeoutRef.current = setTimeout(() => pollJobStatus(id), 5000);
-        }
-    };
 
     const handleUpdateIndex = async () => {
         if (isProcessing || !selectedPastCleanedId || !industryId) return;
@@ -333,11 +288,7 @@ const PastReviewsIndexManagement: React.FC<PastReviewsIndexManagementProps> = ({
                 console.log("Attempting WebSocket connection");
                 connectWebSocket(response.data.job_id);
             } catch (error) {
-                console.log(
-                    "WebSocket connection failed, falling back to polling:",
-                    error
-                );
-                pollJobStatus(response.data.job_id);
+                console.log("WebSocket connection failed:", error);
             }
             notifications.show({
                 title: "処理開始",

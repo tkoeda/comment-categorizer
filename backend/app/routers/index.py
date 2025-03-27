@@ -89,7 +89,7 @@ async def get_index_status(
 
 
 @router.post("/update_past_reviews_index")
-async def update_past_reviews_index_endpoint(
+async def create_or_update_past_reviews_index_endpoint(
     request: UpdatePastReviewsIndexRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -142,7 +142,7 @@ async def update_past_reviews_index_endpoint(
                 mode=request.mode,
                 user=current_user,
             ),
-            name=f"job{job_id}",
+            name=f"index_job{job_id}",
         )
         return {
             "message": f"Index {'replacement' if request.mode == 'replace' else 'update'} job scheduled",

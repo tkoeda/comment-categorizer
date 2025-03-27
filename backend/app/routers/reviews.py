@@ -3,7 +3,7 @@ import logging
 import os
 import time
 
-from app.common.constants import DATA_DIR, REVIEW_FOLDER_PATHS, get_user_dirs
+from app.common.constants import DATA_DIR, get_user_dirs
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.crud.industries import get_industry
@@ -13,7 +13,6 @@ from app.crud.reviews import (
     get_review,
 )
 from app.models.index import Index
-from app.models.industries import Industry
 from app.models.reviews import Review
 from app.models.users import User
 from app.rag_pipeline.combine_clean import clean_excel_file, combine_excel

@@ -59,7 +59,7 @@ async def classify_and_merge(
     status_tracker = result.status_tracker
     avg_length = result.avg_length
 
-    print_status_tracker(status_tracker)
+    # print_status_tracker(status_tracker)
 
     # Calculate token usage and costs
     total_prompt_tokens = llm.total_prompt_tokens

@@ -62,7 +62,7 @@ class IndexJob(Base):
     user: Mapped["User"] = relationship(back_populates="index_jobs")
     status: Mapped[str] = mapped_column(
         String, nullable=False
-    )  # "pending", "processing", "completed", "failed"
+    )  # "pending", "processing", "completed", "failed", "cancelled"
     error: Mapped[str] = mapped_column(String, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), default=datetime.now(timezone.utc)

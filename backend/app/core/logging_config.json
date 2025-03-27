@@ -29,7 +29,7 @@
     },
     "loggers": {
         "": {
-            "level": "WARNING",
+            "level": "ERROR",
             "handlers": ["console", "file_json"],
             "propagate": true
         }

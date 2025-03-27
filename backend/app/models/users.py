@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 if TYPE_CHECKING:
     from app.models.index import Index, IndexJob
     from app.models.industries import Industry
+    from app.models.jobs import ReviewJob
     from app.models.reviews import Review
 
 
@@ -48,6 +49,9 @@ class User(Base):
     )
     index_jobs: Mapped[List["IndexJob"]] = relationship(
         "IndexJob", back_populates="user", cascade="all, delete-orphan"
+    )
+    review_jobs: Mapped[List["ReviewJob"]] = relationship(
+        "ReviewJob", back_populates="user", cascade="all, delete-orphan"
     )
 
     @property
